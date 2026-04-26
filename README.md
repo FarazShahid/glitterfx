@@ -21,7 +21,7 @@ Drop a single library on any container and turn it into a living atmosphere — 
 
 <!-- 2. Three.js + GlitterFX -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/your-username/glitterfx@latest/dist/glitterfx.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/FarazShahid/glitterfx"></script>
 
 <!-- 3. Two lines and you're done -->
 <script>
