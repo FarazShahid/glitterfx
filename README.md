@@ -54,7 +54,7 @@ That's it. Your section now has a living particle background. Content already in
 
 ```html
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/your-username/glitterfx@latest/dist/glitterfx.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/FarazShahid/glitterfx"></script>
 ```
 
 ### Via NPM
