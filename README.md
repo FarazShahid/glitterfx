@@ -5,7 +5,7 @@
 **Cinematic particle backgrounds for the web.**
 Drop a single library on any container and turn it into a living atmosphere — sparkling glitter, drifting embers, swirling galaxies, splashing waves. 26 effects, 17 palettes, 6 blur modes. ~110 KB. Zero dependencies except Three.js.
 
-[**Live Demo**](https://your-username.github.io/glitterfx/) ・ [**Documentation**](https://your-username.github.io/glitterfx/) ・ [**Examples**](./examples)
+[**Live Demo**](https://your-username.github.io/glitterfx/) ・ [**Documentation**](https://your-username.github.io/glitterfx/) 
 
 </div>
 
