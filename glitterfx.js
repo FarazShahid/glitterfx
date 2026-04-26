@@ -1,0 +1,2951 @@
+/* =====================================================================
+   GlitterFX — a tiny library for cinematic particle backgrounds.
+
+   Usage:
+     const fx = new GlitterFX(document.querySelector('#hero'), {
+       effect: 'emerald-shimmer',        // or 'wave-particles'
+       blur: 2,
+       size: 1.0,
+       brightness: 0.6,
+       speed: 0.6,
+       density: 1.0,
+       palette: ['#f5d76e', '#fff4b8', '#4ec9d6'],   // optional
+     });
+
+     fx.update({ blur: 5 });              // live update one or many fields
+     fx.setEffect('wave-particles');      // swap effect, keep container
+     fx.destroy();                        // clean up everything
+
+     // Or load config from a JSON endpoint:
+     fx.loadConfig('/api/glitter-config.json');
+
+   Requires: THREE.js (r128+) loaded globally as `THREE`.
+   ===================================================================== */
+
+(function (global) {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Shared utilities
+  // ------------------------------------------------------------------
+  // Build a "star-like" point sprite texture.
+  //
+  // Real distant point-lights have a tight bright core and a rapid falloff —
+  // not a wide soft glow. The wide-glow approach makes overlapping particles
+  // smush into a uniform bright wash. This profile keeps each particle
+  // visually distinct even when they overlap:
+  //
+  //   • Tiny intense core (peak alpha at center)
+  //   • Sharp falloff over the inner ~25% of the radius
+  //   • Faint outer halo trails to zero by the edge
+  //   • Optional 4-pt diffraction spikes for hero/star looks
+  //
+  // CRITICAL: every radial gradient must end at alpha 0. A canvas
+  // radialGradient with a non-zero last stop continues that color
+  // *infinitely past* the end stop — so when filled into a rectangle,
+  // the rect outside the gradient radius takes the last-stop color.
+  // (That bug caused every particle to render as a white square.)
+  function makeGlowTexture(softness, spikes) {
+    softness = softness == null ? 0.5 : softness;
+    spikes = spikes == null ? 0 : spikes;       // 0..1 spike strength
+    const size = 128;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const cx = size / 2, cy = size / 2;
+
+    // ---- Inner bright core ----
+    // Small, intense, falls off to zero fast. Inner radius ~6–11% of texture.
+    const coreRadius = size * (0.06 + softness * 0.05);
+    const g1 = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRadius);
+    g1.addColorStop(0.00, 'rgba(255,255,255,1)');
+    g1.addColorStop(0.50, 'rgba(255,255,255,0.85)');
+    g1.addColorStop(1.00, 'rgba(255,255,255,0)');     // MUST be 0 — see comment above
+    ctx.fillStyle = g1;
+    ctx.fillRect(0, 0, size, size);
+
+    // ---- Soft outer halo (additive) ----
+    // Wider, much fainter, also ends at zero alpha.
+    ctx.globalCompositeOperation = 'lighter';
+    const haloRadius = size * (0.32 + softness * 0.18);
+    const g2 = ctx.createRadialGradient(cx, cy, coreRadius * 0.5, cx, cy, haloRadius);
+    g2.addColorStop(0.00, 'rgba(255,255,255,0.45)');
+    g2.addColorStop(0.50, 'rgba(255,255,255,0.10)');
+    g2.addColorStop(1.00, 'rgba(255,255,255,0)');     // MUST be 0
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, 0, size, size);
+
+    // ---- 4-point diffraction spikes ----
+    // Bright stars on real cameras flare with cross-pattern spikes.
+    // We draw two thin gradient strips. These linear gradients also need to
+    // end at alpha 0 at both ends so they don't paint the strip uniformly.
+    if (spikes > 0) {
+      const spikeLen = size * 0.46;
+      const spikeAlpha = spikes * 0.55;
+      const spikeAlpha60 = spikeAlpha * 0.6;
+      const spikeStrip = 1.2;
+
+      // Horizontal spike
+      const grdH = ctx.createLinearGradient(cx - spikeLen, cy, cx + spikeLen, cy);
+      grdH.addColorStop(0.00, 'rgba(255,255,255,0)');
+      grdH.addColorStop(0.40, 'rgba(255,255,255,' + spikeAlpha60 + ')');
+      grdH.addColorStop(0.50, 'rgba(255,255,255,' + spikeAlpha + ')');
+      grdH.addColorStop(0.60, 'rgba(255,255,255,' + spikeAlpha60 + ')');
+      grdH.addColorStop(1.00, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grdH;
+      ctx.fillRect(cx - spikeLen, cy - spikeStrip / 2, spikeLen * 2, spikeStrip);
+
+      // Vertical spike
+      const grdV = ctx.createLinearGradient(cx, cy - spikeLen, cx, cy + spikeLen);
+      grdV.addColorStop(0.00, 'rgba(255,255,255,0)');
+      grdV.addColorStop(0.40, 'rgba(255,255,255,' + spikeAlpha60 + ')');
+      grdV.addColorStop(0.50, 'rgba(255,255,255,' + spikeAlpha + ')');
+      grdV.addColorStop(0.60, 'rgba(255,255,255,' + spikeAlpha60 + ')');
+      grdV.addColorStop(1.00, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grdV;
+      ctx.fillRect(cx - spikeStrip / 2, cy - spikeLen, spikeStrip, spikeLen * 2);
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    return tex;
+  }
+
+  // Procedural 2D noise (cheap value-noise, good enough for slow motion)
+  function noise2D(x, y) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = x - ix, fy = y - iy;
+    const h = (a, b) => {
+      const n = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+      return n - Math.floor(n);
+    };
+    const a = h(ix, iy), b = h(ix + 1, iy), c = h(ix, iy + 1), d = h(ix + 1, iy + 1);
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+  }
+
+  // 3D value noise — used for curl flow fields (curl-flow effect)
+  function noise3D(x, y, z) {
+    const h = (a, b, c) => {
+      const n = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
+      return n - Math.floor(n);
+    };
+    const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+    const fx = x - ix, fy = y - iy, fz = z - iz;
+    const ux = fx*fx*(3-2*fx), uy = fy*fy*(3-2*fy), uz = fz*fz*(3-2*fz);
+    const c000 = h(ix,   iy,   iz),   c100 = h(ix+1, iy,   iz);
+    const c010 = h(ix,   iy+1, iz),   c110 = h(ix+1, iy+1, iz);
+    const c001 = h(ix,   iy,   iz+1), c101 = h(ix+1, iy,   iz+1);
+    const c011 = h(ix,   iy+1, iz+1), c111 = h(ix+1, iy+1, iz+1);
+    const x00 = c000 + (c100 - c000) * ux;
+    const x10 = c010 + (c110 - c010) * ux;
+    const x01 = c001 + (c101 - c001) * ux;
+    const x11 = c011 + (c111 - c011) * ux;
+    const y0 = x00 + (x10 - x00) * uy;
+    const y1 = x01 + (x11 - x01) * uy;
+    return y0 + (y1 - y0) * uz;
+  }
+
+  // Curl of 3D noise — gives a divergence-free vector field (perfect for swirly flows)
+  function curlNoise(x, y, z) {
+    const e = 0.1;
+    const dx = (noise3D(x, y + e, z) - noise3D(x, y - e, z)) -
+               (noise3D(x, y, z + e) - noise3D(x, y, z - e));
+    const dy = (noise3D(x, y, z + e) - noise3D(x, y, z - e)) -
+               (noise3D(x + e, y, z) - noise3D(x - e, y, z));
+    const dz = (noise3D(x + e, y, z) - noise3D(x - e, y, z)) -
+               (noise3D(x, y + e, z) - noise3D(x, y - e, z));
+    return [dx / (2 * e), dy / (2 * e), dz / (2 * e)];
+  }
+
+  function pickWeighted(items, weights) {
+    let sum = 0;
+    for (let i = 0; i < weights.length; i++) sum += weights[i];
+    let r = Math.random() * sum;
+    for (let i = 0; i < items.length; i++) {
+      r -= weights[i];
+      if (r < 0) return items[i];
+    }
+    return items[0];
+  }
+
+  // ------------------------------------------------------------------
+  // Premium shader code — shared by the kernel AND the 6 hand-written
+  // effects via a helper. Keeps shader logic in ONE place so any future
+  // visual upgrade (e.g. better twinkle, HDR tone-mapping) lives here
+  // and benefits every effect at once.
+  // ------------------------------------------------------------------
+  const PREMIUM_VERTEX_SHARED = `
+    // Per-particle twinkle: slow shimmer + sharp flashes, asynchronous.
+    // Each particle has its own phase so they sparkle like real stars.
+    float computeTwinkle(float t, float phase, float strength) {
+      float shimmer = 0.6 + 0.4 * sin(t * 1.4 + phase * 6.28);
+      float flash   = pow(0.5 + 0.5 * sin(t * 0.45 + phase * 13.0), 12.0);
+      return mix(1.0, shimmer + flash * 1.6, strength);
+    }
+    // Energy conservation: bigger particle area should mean less per-pixel
+    // brightness so dense fields don't smush into white. Reference radius 6px.
+    float energyScale(float pointPx, float compensation) {
+      float relSize = max(pointPx / 6.0, 1.0);
+      return mix(1.0, 1.0 / relSize, compensation);
+    }
+    // Distant particles slightly dimmer — perspective brightness cue.
+    float depthDim(float depth) {
+      return clamp(1.0 - (depth - 5.0) * 0.012, 0.55, 1.0);
+    }
+  `;
+
+  // Standard premium vertex shader for hand-written effects. Effects can
+  // pass extra attributes (e.g. aSpeed) — they're declared per-effect.
+  function premiumVertex(extraAttrs) {
+    return `
+      attribute float aSize, aPhase;
+      ${extraAttrs || ''}
+      uniform float uTime, uPixelRatio, uSizeMul, uTwinkleStr, uPersp, uEnergyComp;
+      varying vec3 vColor;
+      varying float vAlpha;
+      varying float vEnergyScale;
+      varying float vDepthDim;
+      ${PREMIUM_VERTEX_SHARED}
+      void main() {
+        vColor = color;
+        vAlpha = computeTwinkle(uTime, aPhase, uTwinkleStr);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float depth = -mv.z;
+        float pointPx = aSize * uSizeMul * uPixelRatio * (uPersp / depth);
+        gl_PointSize = pointPx;
+        vEnergyScale = energyScale(pointPx, uEnergyComp);
+        vDepthDim    = depthDim(depth);
+        gl_Position  = projectionMatrix * mv;
+      }
+    `;
+  }
+
+  // Standard premium fragment shader for hand-written effects.
+  const PREMIUM_FRAGMENT = `
+    uniform sampler2D uTexture;
+    uniform float uBrightness;
+    varying vec3 vColor;
+    varying float vAlpha;
+    varying float vEnergyScale;
+    varying float vDepthDim;
+    void main() {
+      vec4 tex = texture2D(uTexture, gl_PointCoord);
+      vec3 col = vColor * uBrightness;
+      float a = tex.a * tex.r * uBrightness * vAlpha * vEnergyScale * vDepthDim;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(col, a);
+    }
+  `;
+
+  // Build the standard premium-shader uniforms block for hand-written effects.
+  // `opts` accepts: glowSoftness, spikes, twinkle, persp, energyComp, pixelRatio.
+  function premiumUniforms(opts) {
+    opts = opts || {};
+    return {
+      uTime:        { value: 0 },
+      uTexture:     { value: makeGlowTexture(
+                                 opts.glowSoftness != null ? opts.glowSoftness : 0.5,
+                                 opts.spikes != null ? opts.spikes : 0
+                               ) },
+      uPixelRatio:  { value: opts.pixelRatio },
+      uSizeMul:     { value: opts.size },
+      uBrightness:  { value: opts.brightness },
+      uTwinkleStr:  { value: opts.twinkle != null ? opts.twinkle : 0.4 },
+      uPersp:       { value: opts.persp != null ? opts.persp : 320.0 },
+      uEnergyComp:  { value: opts.energyComp != null ? opts.energyComp : 0.7 },
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Particle Kernel — generic factory for the 20+ kernel-based effects.
+  // A spec provides spawn(), step(), camera/fog/size hints; the kernel
+  // handles geometry, shader, lifetime recycling, and disposal.
+  // ------------------------------------------------------------------
+  function buildKernelEffect(ctx, spec) {
+    const { scene, camera, config } = ctx;
+    const COUNT_BASE = spec.countBase || 3500;
+    const count = Math.max(50, Math.round(COUNT_BASE * config.density * (spec.densityMul || 1)));
+
+    if (spec.cameraPos)    camera.position.set(spec.cameraPos[0], spec.cameraPos[1], spec.cameraPos[2]);
+    if (spec.cameraTarget) camera.lookAt(spec.cameraTarget[0], spec.cameraTarget[1], spec.cameraTarget[2]);
+    if (spec.fog) scene.fog = new THREE.Fog(spec.fog.color, spec.fog.near, spec.fog.far);
+    else scene.fog = null;
+
+    const pal = resolvePalette(config.palette);
+    const palette = pal.colors.map(c => new THREE.Color(c));
+    const weights = config.weights || pal.weights;
+
+    const positions  = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
+    const homePos    = new Float32Array(count * 3);
+    const colors     = new Float32Array(count * 3);
+    const sizes      = new Float32Array(count);
+    const phases     = new Float32Array(count);
+    const lives      = new Float32Array(count);
+    const maxLives   = new Float32Array(count);
+    const scratch    = new Float32Array(count * 4);
+
+    const sr = spec.sizeRange || {
+      small:  [2, 5],   smallW:  0.82,
+      medium: [7, 16],  mediumW: 0.96,
+      large:  [22, 40]
+    };
+
+    const kctx = {
+      i: 0, count,
+      positions, velocities, homePos, colors, sizes, phases, lives, maxLives, scratch,
+      palette, weights,
+      time: 0, dt: 0,
+    };
+
+    for (let i = 0; i < count; i++) {
+      kctx.i = i;
+      spec.spawn(kctx);
+
+      const c = pickWeighted(palette, weights);
+      colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+
+      const roll = Math.random();
+      let s;
+      if      (roll < sr.smallW)  s = sr.small[0]  + Math.random() * (sr.small[1]  - sr.small[0]);
+      else if (roll < sr.mediumW) s = sr.medium[0] + Math.random() * (sr.medium[1] - sr.medium[0]);
+      else                        s = sr.large[0]  + Math.random() * (sr.large[1]  - sr.large[0]);
+      sizes[i] = s;
+
+      phases[i] = Math.random() * Math.PI * 2;
+      if (spec.useLifetime) lives[i] = Math.random() * (maxLives[i] || 1);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+    geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+    geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+    geo.setAttribute('aLife',    new THREE.BufferAttribute(lives,     1));
+    geo.setAttribute('aMaxLife', new THREE.BufferAttribute(maxLives,  1));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: Object.assign(
+        premiumUniforms({
+          glowSoftness: spec.glowSoftness,
+          spikes:       spec.spikes,
+          pixelRatio:   ctx.renderer.getPixelRatio(),
+          size:         config.size,
+          brightness:   config.brightness,
+          twinkle:      spec.twinkle != null ? spec.twinkle : 0.4,
+          persp:        spec.sizePerspective,
+          energyComp:   spec.energyCompensation != null ? spec.energyCompensation : 0.7,
+        }),
+        { uUseLifetime: { value: spec.useLifetime ? 1.0 : 0.0 } }
+      ),
+      // Kernel adds lifetime fade on top of the shared premium twinkle/energy/depth.
+      vertexShader: `
+        attribute float aSize, aPhase, aLife, aMaxLife;
+        uniform float uTime, uPixelRatio, uSizeMul, uTwinkleStr, uPersp, uEnergyComp, uUseLifetime;
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vEnergyScale;
+        varying float vDepthDim;
+        ${PREMIUM_VERTEX_SHARED}
+        void main() {
+          vColor = color;
+          float twink = computeTwinkle(uTime, aPhase, uTwinkleStr);
+          float lifeT = aLife / max(aMaxLife, 0.001);
+          float lifeFade = mix(1.0,
+            smoothstep(0.0, 0.08, lifeT) * (1.0 - smoothstep(0.55, 1.0, lifeT)),
+            uUseLifetime);
+          vAlpha = twink * lifeFade;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          float depth = -mv.z;
+          float pointPx = aSize * uSizeMul * uPixelRatio * (uPersp / depth);
+          gl_PointSize = pointPx;
+          vEnergyScale = energyScale(pointPx, uEnergyComp);
+          vDepthDim    = depthDim(depth);
+          gl_Position  = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: PREMIUM_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      blending: spec.blending != null ? spec.blending : THREE.AdditiveBlending,
+      vertexColors: true,
+    });
+
+    const points = new THREE.Points(geo, mat);
+    scene.add(points);
+
+    return {
+      points, mat, geo,
+      update(dt, time, speedMul) {
+        mat.uniforms.uTime.value = time;
+        kctx.time = time;
+        kctx.dt = dt * speedMul;
+
+        for (let i = 0; i < count; i++) {
+          kctx.i = i;
+          if (spec.useLifetime) {
+            lives[i] += kctx.dt;
+            if (lives[i] > maxLives[i]) {
+              spec.spawn(kctx);
+              lives[i] = 0;
+              const c = pickWeighted(palette, weights);
+              colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+              continue;
+            }
+          }
+          spec.step(kctx);
+        }
+        geo.attributes.position.needsUpdate = true;
+        if (spec.useLifetime) {
+          geo.attributes.aLife.needsUpdate = true;
+          geo.attributes.color.needsUpdate = true;
+        }
+      },
+      applyParam(key, value) {
+        if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+        if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+      },
+      dispose() {
+        scene.remove(points);
+        geo.dispose();
+        mat.uniforms.uTexture.value.dispose();
+        mat.dispose();
+      },
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // GLOBAL DEFAULTS
+  // These get layered on top of each effect's own defaults, so the
+  // visual treatment (blur mode, haze, brightness, etc.) is consistent
+  // across every effect unless the user explicitly overrides per-instance.
+  //
+  // Effect-specific values like `background`, `palette`, and motion params
+  // (which truly belong to the effect identity) are NOT overridden here —
+  // we only set fields that exist in this object. Effects that don't list
+  // a key here keep their own value.
+  //
+  // Override at runtime with GlitterFX.setGlobalDefaults({...}).
+  // ------------------------------------------------------------------
+  let GLOBAL_DEFAULTS = {
+    blurMode:   'lens',
+    blur:       2,
+    size:       0.76,
+    brightness: 1.05,
+    speed:      0.70,
+    density:    1.73,
+    haze:       0.47,
+    hazeColor:  '#1a4a26',
+  };
+
+  // ------------------------------------------------------------------
+  // Named palettes — users can pass a palette name OR a color array.
+  // Add your own with GlitterFX.registerPalette(name, colors, weights).
+  // ------------------------------------------------------------------
+  const PALETTES = {
+    'emerald-gold': {
+      colors:  ['#f5d76e','#e8c547','#fff4b8','#b8d96a','#6dd5b3','#4ec9d6','#9ed4e8','#d4a847'],
+      weights: [0.32, 0.22, 0.10, 0.12, 0.08, 0.06, 0.04, 0.06],
+    },
+    'cobalt-cyan': {
+      colors:  ['#1e3aff','#3b6dff','#3affff','#7ce8ff','#0a1e80','#a4faff'],
+      weights: [0.28, 0.24, 0.20, 0.14, 0.08, 0.06],
+    },
+    'magma': {
+      colors:  ['#ff3a1d','#ff7a3a','#ffce5c','#ffffff','#8a1a05','#ffa050'],
+      weights: [0.28, 0.26, 0.18, 0.10, 0.10, 0.08],
+    },
+    'supernova': {
+      colors:  ['#ffffff','#bfd9ff','#7faaff','#ffe7c2','#5a8eff','#ffc89a'],
+      weights: [0.34, 0.22, 0.18, 0.12, 0.08, 0.06],
+    },
+    'aurora': {
+      colors:  ['#5cffb3','#7affde','#3aaeff','#a64dff','#1bff97','#d4a8ff'],
+      weights: [0.26, 0.22, 0.20, 0.14, 0.10, 0.08],
+    },
+    'confetti': {
+      colors:  ['#ffd84a','#ff5e3a','#ffffff','#ffb14a','#e8e2c8','#3a90ff'],
+      weights: [0.30, 0.18, 0.20, 0.15, 0.12, 0.05],
+    },
+    'mono-white': {
+      colors:  ['#ffffff','#f0f0f0','#cfd8dc'],
+      weights: [0.6, 0.3, 0.1],
+    },
+    'sakura': {
+      colors:  ['#ffb3d1','#ff7eb6','#ffd9e8','#ff5e9c','#ffe4ee','#c8729e'],
+      weights: [0.30, 0.22, 0.18, 0.14, 0.10, 0.06],
+    },
+    'firefly': {
+      colors:  ['#d4ff5a','#a8d860','#fff89e','#7ad44a','#cce86a'],
+      weights: [0.36, 0.26, 0.18, 0.12, 0.08],
+    },
+    'cosmic': {
+      colors:  ['#7a8aff','#b89fff','#fff4d6','#5fa9ff','#3a5cff','#ffc8e8'],
+      weights: [0.30, 0.22, 0.16, 0.14, 0.10, 0.08],
+    },
+    'plasma': {
+      colors:  ['#9a4dff','#3affff','#ff4dde','#ff8a3a','#fff','#5a3aff'],
+      weights: [0.26, 0.22, 0.18, 0.14, 0.12, 0.08],
+    },
+    'aqua': {
+      colors:  ['#3aa8d4','#7fd8e8','#a4faff','#1c6a8a','#dff5ff'],
+      weights: [0.32, 0.26, 0.20, 0.12, 0.10],
+    },
+    'autumn': {
+      colors:  ['#d4762a','#b04030','#e8a04a','#8a2818','#f0c878','#642010'],
+      weights: [0.28, 0.22, 0.18, 0.14, 0.10, 0.08],
+    },
+    'desert': {
+      colors:  ['#c8985a','#a0703a','#e8c890','#704818','#d8a868','#fff0c4'],
+      weights: [0.30, 0.24, 0.18, 0.12, 0.10, 0.06],
+    },
+    'starlight': {
+      colors:  ['#ffffff','#ffe0b8','#bcd5ff','#fff8d4','#a4c8ff'],
+      weights: [0.46, 0.20, 0.16, 0.12, 0.06],
+    },
+    'love': {
+      colors:  ['#ff3a6a','#ff8aac','#ff5e8a','#fff','#c8204a'],
+      weights: [0.32, 0.22, 0.20, 0.16, 0.10],
+    },
+    'quantum': {
+      colors:  ['#3affc4','#5cffec','#a4ffd8','#1cb098','#dffff5'],
+      weights: [0.30, 0.26, 0.20, 0.14, 0.10],
+    },
+  };
+
+  function resolvePalette(p) {
+    // If string → look up in PALETTES; if array → treat as colors directly.
+    if (typeof p === 'string' && PALETTES[p]) return PALETTES[p];
+    if (Array.isArray(p)) return { colors: p, weights: p.map(() => 1) };
+    return PALETTES['emerald-gold'];
+  }
+
+  // ------------------------------------------------------------------
+  // Shared builder: swirling-outward vortex.
+  //
+  // Used by `ray-burst` (unidirectional, clean spiral) and `bending-chaos`
+  // (bidirectional, particles flowing both ways for a turbulent feel).
+  // Both effects share 99% of their motion code; only the sign of each
+  // particle's swirl rate differs.
+  //
+  // opts.bidirectional — if true, ~8% of particles spin counter to the rest,
+  //                      creating crossing trails; if false, all particles
+  //                      swirl in the same direction.
+  // ------------------------------------------------------------------
+  function buildSwirlVortex(ctx, opts) {
+    const { scene, camera, config } = ctx;
+    const bidirectional = !!(opts && opts.bidirectional);
+    const COUNT_BASE = 3500;
+    const count = Math.max(200, Math.round(COUNT_BASE * config.density));
+
+    camera.position.set(0, 0, 25);
+    camera.lookAt(0, 0, 0);
+    scene.fog = null;
+
+    const pal = resolvePalette(config.palette);
+    const palette = pal.colors.map(c => new THREE.Color(c));
+    const weights = config.weights || pal.weights;
+
+    const positions = new Float32Array(count * 3);
+    const colors    = new Float32Array(count * 3);
+    const sizes     = new Float32Array(count);
+    const phases    = new Float32Array(count);
+    const angleArr  = new Float32Array(count);
+    const radiusArr = new Float32Array(count);
+    const lives     = new Float32Array(count);
+    const maxLives  = new Float32Array(count);
+    const speeds    = new Float32Array(count);
+    const swirls    = new Float32Array(count);
+
+    function spawnParticle(i) {
+      angleArr[i]  = Math.random() * Math.PI * 2;
+      radiusArr[i] = Math.random() * 1.5;
+      speeds[i]    = 3 + Math.random() * 5;
+      // Per-particle swirl strength. Direction depends on bidirectional flag.
+      const mag = 0.6 + Math.random() * 1.4;
+      swirls[i] = bidirectional
+        ? mag * (Math.random() < 0.92 ? 1 : -1)   // mostly one way, 8% counter
+        : mag;                                     // all unidirectional
+      positions[i*3+2] = (Math.random() - 0.5) * 4;
+      lives[i] = 0;
+      maxLives[i] = 2.5 + Math.random() * 3;
+    }
+
+    for (let i = 0; i < count; i++) {
+      spawnParticle(i);
+      lives[i] = Math.random() * maxLives[i];
+      radiusArr[i] += speeds[i] * lives[i];
+      const avgR = radiusArr[i] * 0.5;
+      angleArr[i] += swirls[i] * (0.4 + avgR * 0.04) * lives[i];
+      positions[i*3]   = Math.cos(angleArr[i]) * radiusArr[i];
+      positions[i*3+1] = Math.sin(angleArr[i]) * radiusArr[i];
+      const c = pickWeighted(palette, weights);
+      colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+      const roll = Math.random();
+      if      (roll < 0.85) sizes[i] = 2.5 + Math.random() * 3.5;
+      else if (roll < 0.97) sizes[i] = 8 + Math.random() * 10;
+      else                  sizes[i] = 20 + Math.random() * 18;
+      phases[i] = Math.random() * Math.PI * 2;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+    geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+    geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+    geo.setAttribute('aLife',    new THREE.BufferAttribute(lives,     1));
+    geo.setAttribute('aMaxLife', new THREE.BufferAttribute(maxLives,  1));
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms: premiumUniforms({
+        glowSoftness: 0.6,
+        spikes:       0.35,
+        pixelRatio:   ctx.renderer.getPixelRatio(),
+        size:         config.size,
+        brightness:   config.brightness,
+        twinkle:      0.4,
+        persp:        320.0,
+        energyComp:   0.65,
+      }),
+      vertexShader: `
+        attribute float aSize, aPhase, aLife, aMaxLife;
+        uniform float uTime, uPixelRatio, uSizeMul, uTwinkleStr, uPersp, uEnergyComp;
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vEnergyScale;
+        varying float vDepthDim;
+        ${PREMIUM_VERTEX_SHARED}
+        void main() {
+          vColor = color;
+          float lifeT = aLife / max(aMaxLife, 0.001);
+          float fadeIn  = smoothstep(0.0, 0.1, lifeT);
+          float fadeOut = 1.0 - smoothstep(0.6, 1.0, lifeT);
+          float twink = computeTwinkle(uTime, aPhase, uTwinkleStr);
+          vAlpha = fadeIn * fadeOut * twink;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          float depth = -mv.z;
+          float pointPx = aSize * uSizeMul * uPixelRatio * (uPersp / depth);
+          gl_PointSize = pointPx;
+          vEnergyScale = energyScale(pointPx, uEnergyComp);
+          vDepthDim    = depthDim(depth);
+          gl_Position  = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: PREMIUM_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: true,
+    });
+
+    const points = new THREE.Points(geo, mat);
+    scene.add(points);
+
+    return {
+      points, mat, geo,
+
+      update(dt, time, speedMul) {
+        mat.uniforms.uTime.value = time;
+        const pos     = geo.attributes.position.array;
+        const lifeArr = geo.attributes.aLife.array;
+        const cnt = pos.length / 3;
+
+        for (let i = 0; i < cnt; i++) {
+          const k = i * 3;
+          lifeArr[i] += dt * speedMul;
+          if (lifeArr[i] > maxLives[i]) {
+            spawnParticle(i);
+            continue;
+          }
+          radiusArr[i] += speeds[i] * dt * speedMul;
+          // Angular velocity grows with radius — log-spiral motion.
+          const angVel = swirls[i] * (0.4 + radiusArr[i] * 0.04);
+          angleArr[i] += angVel * dt * speedMul;
+          pos[k]   = Math.cos(angleArr[i]) * radiusArr[i];
+          pos[k+1] = Math.sin(angleArr[i]) * radiusArr[i];
+        }
+        geo.attributes.position.needsUpdate = true;
+        geo.attributes.aLife.needsUpdate = true;
+      },
+
+      applyParam(key, value) {
+        if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+        if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+      },
+
+      dispose() {
+        scene.remove(points);
+        geo.dispose();
+        mat.uniforms.uTexture.value.dispose();
+        mat.dispose();
+      },
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Effect definitions
+  // Each effect is a plain object with:
+  //   defaults       — initial config values
+  //   build(ctx)     — returns { points, update(dt, time), dispose() }
+  // ctx provides: scene, camera, renderer, config
+  // ------------------------------------------------------------------
+  const EFFECTS = {
+
+    // ----------------------------------------------------------------
+    // 1. Emerald Shimmer — radial flow, gold-on-green
+    // ----------------------------------------------------------------
+    'emerald-shimmer': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 60%, #0a2410 0%, #050d05 55%, #020401 100%)',
+        density:     1.0,
+        size:        1.0,
+        brightness:  0.6,
+        speed:       0.7,
+        blur:        2,
+        haze:        0.0,
+        hazeColor:   '#1a4a26',
+        palette:     'emerald-gold',
+      },
+
+      build(ctx) {
+        const { scene, camera, config } = ctx;
+        const COUNT_BASE = 1800;
+        const FIELD_DEPTH = 80, FIELD_RADIUS = 35;
+        const count = Math.max(50, Math.round(COUNT_BASE * config.density));
+
+        camera.position.set(0, 0, 0);
+        camera.lookAt(0, 0, -20);
+        scene.fog = new THREE.Fog(0x051208, 30, 110);
+
+        const pal = resolvePalette(config.palette);
+        const palette = pal.colors.map(c => new THREE.Color(c));
+        const weights = config.weights || pal.weights;
+
+        const positions = new Float32Array(count * 3);
+        const colors    = new Float32Array(count * 3);
+        const sizes     = new Float32Array(count);
+        const phases    = new Float32Array(count);
+        const speeds    = new Float32Array(count);
+
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = Math.pow(Math.random(), 0.6) * FIELD_RADIUS;
+          positions[i*3]   = Math.cos(angle) * radius;
+          positions[i*3+1] = Math.sin(angle) * radius;
+          positions[i*3+2] = -Math.random() * FIELD_DEPTH;
+
+          const c = pickWeighted(palette, weights);
+          colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+
+          const roll = Math.random();
+          if (roll < 0.85)      sizes[i] = 4  + Math.random() * 6;
+          else if (roll < 0.97) sizes[i] = 14 + Math.random() * 14;
+          else                  sizes[i] = 35 + Math.random() * 30;
+
+          phases[i] = Math.random() * Math.PI * 2;
+          speeds[i] = 0.4 + Math.random() * 0.9;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+        geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+        geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+        geo.setAttribute('aSpeed',   new THREE.BufferAttribute(speeds,    1));
+
+        const mat = new THREE.ShaderMaterial({
+          uniforms: premiumUniforms({
+            glowSoftness: 0.5,
+            spikes:       0.3,
+            pixelRatio:   ctx.renderer.getPixelRatio(),
+            size:         config.size,
+            brightness:   config.brightness,
+            twinkle:      0.55,
+            persp:        300.0,
+            energyComp:   0.7,
+          }),
+          vertexShader: premiumVertex('attribute float aSpeed;'),
+          fragmentShader: PREMIUM_FRAGMENT,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          vertexColors: true,
+        });
+
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+
+        return {
+          points, mat, geo,
+
+          update(dt, time, speedMul) {
+            mat.uniforms.uTime.value = time;
+            const pos = geo.attributes.position.array;
+            const sp  = geo.attributes.aSpeed.array;
+            const cnt = pos.length / 3;
+            for (let i = 0; i < cnt; i++) {
+              const k = i * 3;
+              pos[k+2] += sp[i] * 8.0 * dt * speedMul;
+              pos[k]   += Math.sin(time * 0.3 + i) * 0.002;
+              pos[k+1] += Math.cos(time * 0.27 + i * 0.7) * 0.002;
+              if (pos[k+2] > 5) {
+                const a = Math.random() * Math.PI * 2;
+                const r = Math.pow(Math.random(), 0.6) * FIELD_RADIUS;
+                pos[k]   = Math.cos(a) * r;
+                pos[k+1] = Math.sin(a) * r;
+                pos[k+2] = -FIELD_DEPTH - Math.random() * 10;
+              }
+            }
+            geo.attributes.position.needsUpdate = true;
+          },
+
+          applyParam(key, value) {
+            if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+            if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+          },
+
+          dispose() {
+            scene.remove(points);
+            geo.dispose();
+            mat.uniforms.uTexture.value.dispose();
+            mat.dispose();
+          },
+        };
+      }
+    },
+
+    // ----------------------------------------------------------------
+    // 2. Wave Particles — flowing dot field, multicolor confetti
+    //    (The new effect from the second video)
+    // ----------------------------------------------------------------
+    'wave-particles': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 70%, #0a1418 0%, #04080b 55%, #010204 100%)',
+        density:     1.0,
+        size:        0.9,
+        brightness:  1.0,
+        speed:       0.8,
+        blur:        0,
+        haze:        0.0,
+        hazeColor:   '#1a3a5c',
+        palette:     'confetti',
+      },
+
+      build(ctx) {
+        const { scene, camera, config } = ctx;
+
+        // Camera placed low and close so the wave surface fills the entire frame
+        // (low Y + tilt forward + far view distance = particles from bottom edge
+        // all the way to the horizon at the top).
+        camera.position.set(0, 2.2, 14);
+        camera.lookAt(0, 1.5, -30);
+        scene.fog = new THREE.Fog(0x040810, 25, 90);
+
+        const COUNT_BASE = 12000;             // dense dot field, more particles
+                                              // because the field is much larger
+        const count = Math.max(500, Math.round(COUNT_BASE * config.density));
+        const FIELD_W = 140, FIELD_D = 120;   // wide & deep enough that the
+                                              // surface reaches the horizon
+
+        const pal = resolvePalette(config.palette);
+        const palette = pal.colors.map(c => new THREE.Color(c));
+        const weights = config.weights || pal.weights;
+
+        const positions  = new Float32Array(count * 3);
+        const homePos    = new Float32Array(count * 3); // resting XZ for noise lookup
+        const colors     = new Float32Array(count * 3);
+        const sizes      = new Float32Array(count);
+        const phases     = new Float32Array(count);
+
+        for (let i = 0; i < count; i++) {
+          const x = (Math.random() - 0.5) * FIELD_W;
+          // Bias z distribution: more particles near camera (positive z) and
+          // sparser into the distance — looks more natural with strong perspective.
+          // Math.pow with exponent < 1 pushes the curve toward 1 (near camera).
+          const zRoll = Math.pow(Math.random(), 0.7);
+          const z = (zRoll - 0.7) * FIELD_D;   // range roughly [-0.7*D .. +0.3*D]
+          positions[i*3]   = x;
+          positions[i*3+1] = 0;
+          positions[i*3+2] = z;
+          homePos[i*3]     = x;
+          homePos[i*3+1]   = 0;
+          homePos[i*3+2]   = z;
+
+          const c = pickWeighted(palette, weights);
+          colors[i*3]   = c.r;
+          colors[i*3+1] = c.g;
+          colors[i*3+2] = c.b;
+
+          // Size distribution: many small dots, some medium, a few hero bokeh
+          const roll = Math.random();
+          if      (roll < 0.78) sizes[i] = 2  + Math.random() * 3;
+          else if (roll < 0.96) sizes[i] = 6  + Math.random() * 6;
+          else                  sizes[i] = 14 + Math.random() * 18;
+
+          phases[i] = Math.random() * Math.PI * 2;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+        geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+        geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+
+        const mat = new THREE.ShaderMaterial({
+          uniforms: Object.assign(
+            premiumUniforms({
+              glowSoftness: 0.5,
+              spikes:       0.2,
+              pixelRatio:   ctx.renderer.getPixelRatio(),
+              size:         config.size,
+              brightness:   config.brightness,
+              twinkle:      0.4,
+              persp:        260.0,
+              energyComp:   0.7,
+            }),
+            {
+              uFogColor: { value: new THREE.Color(0x040810) },
+              uFogNear:  { value: 25 },
+              uFogFar:   { value: 90 },
+            }
+          ),
+          vertexShader: `
+            attribute float aSize, aPhase;
+            uniform float uTime, uPixelRatio, uSizeMul, uTwinkleStr, uPersp, uEnergyComp;
+            varying vec3 vColor;
+            varying float vAlpha;
+            varying float vEnergyScale;
+            varying float vDepthDim;
+            varying float vFogDepth;
+            ${PREMIUM_VERTEX_SHARED}
+            void main() {
+              vColor = color;
+              vAlpha = computeTwinkle(uTime, aPhase, uTwinkleStr);
+              vec4 mv = modelViewMatrix * vec4(position, 1.0);
+              float depth = -mv.z;
+              vFogDepth = depth;
+              float pointPx = aSize * uSizeMul * uPixelRatio * (uPersp / depth);
+              gl_PointSize = pointPx;
+              vEnergyScale = energyScale(pointPx, uEnergyComp);
+              vDepthDim    = depthDim(depth);
+              gl_Position  = projectionMatrix * mv;
+            }
+          `,
+          fragmentShader: `
+            uniform sampler2D uTexture;
+            uniform float uBrightness;
+            uniform vec3 uFogColor;
+            uniform float uFogNear, uFogFar;
+            varying vec3 vColor;
+            varying float vAlpha;
+            varying float vEnergyScale;
+            varying float vDepthDim;
+            varying float vFogDepth;
+            void main() {
+              vec4 tex = texture2D(uTexture, gl_PointCoord);
+              vec3 col = vColor * uBrightness;
+              float fogFactor = smoothstep(uFogNear, uFogFar, vFogDepth);
+              col = mix(col, uFogColor, fogFactor);
+              float a = tex.a * tex.r * uBrightness * vAlpha * vEnergyScale * vDepthDim * (1.0 - fogFactor * 0.6);
+              if (a < 0.01) discard;
+              gl_FragColor = vec4(col, a);
+            }
+          `,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          vertexColors: true,
+        });
+
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+
+        // Pre-bake a noise field as a tiny lookup so per-frame cost is low
+        // (we sample procedurally per-particle each frame; cheap enough at this count)
+
+        return {
+          points, mat, geo,
+
+          update(dt, time, speedMul) {
+            mat.uniforms.uTime.value = time;
+            const pos = geo.attributes.position.array;
+            const cnt = pos.length / 3;
+
+            // Wave parameters — tuned for the larger field. Lower spatial
+            // frequencies so the wave detail reads at distance, plus a bigger
+            // amplitude so the surface has visible relief from edge to edge.
+            const t = time * 0.4 * speedMul;
+            for (let i = 0; i < cnt; i++) {
+              const k = i * 3;
+              const x = homePos[k], z = homePos[k+2];
+
+              // Layered noise for organic terrain
+              const n1 = noise2D(x * 0.05 + t,        z * 0.05);
+              const n2 = noise2D(x * 0.12 - t * 0.7,  z * 0.12 + t * 0.5) * 0.5;
+              const n3 = noise2D(x * 0.28 + t * 1.5,  z * 0.28) * 0.18;
+              const h = (n1 + n2 + n3 - 0.85) * 5.0;  // slightly bigger amplitude
+
+              pos[k]   = x;
+              pos[k+1] = h;
+              pos[k+2] = z;
+            }
+            geo.attributes.position.needsUpdate = true;
+          },
+
+          applyParam(key, value) {
+            if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+            if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+          },
+
+          dispose() {
+            scene.remove(points);
+            geo.dispose();
+            mat.uniforms.uTexture.value.dispose();
+            mat.dispose();
+          },
+        };
+      }
+    },
+
+    // ----------------------------------------------------------------
+    // 3. Curl Flow — particles ride invisible swirling vector field,
+    //    leaving filament trails. Pure black background, cool palette.
+    //    Built from curl noise (divergence-free 3D vector field).
+    // ----------------------------------------------------------------
+    'curl-flow': {
+      defaults: {
+        background:  '#000000',
+        density:     1.0,
+        size:        0.7,
+        brightness:  0.95,
+        speed:       0.6,
+        blur:        0,
+        trail:       0.92,    // 0=no trails, 0.99=very long trails
+        haze:        0.0,
+        hazeColor:   '#0a1a4a',
+        palette:     'cobalt-cyan',
+      },
+
+      build(ctx) {
+        const { scene, camera, config } = ctx;
+        const COUNT_BASE = 4500;
+        const count = Math.max(200, Math.round(COUNT_BASE * config.density));
+        const FIELD = 30; // particles roam inside a [-FIELD..+FIELD] cube
+
+        camera.position.set(0, 0, 35);
+        camera.lookAt(0, 0, 0);
+        scene.fog = null;
+
+        const pal = resolvePalette(config.palette);
+        const palette = pal.colors.map(c => new THREE.Color(c));
+        const weights = config.weights || pal.weights;
+
+        const positions = new Float32Array(count * 3);
+        const colors    = new Float32Array(count * 3);
+        const sizes     = new Float32Array(count);
+        const phases    = new Float32Array(count);
+        const lives     = new Float32Array(count);     // age in seconds
+        const maxLives  = new Float32Array(count);     // lifespan
+
+        function spawnParticle(i) {
+          // Spawn anywhere in field volume, slightly biased to center
+          const r = Math.pow(Math.random(), 0.5) * FIELD;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          positions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+          positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+          positions[i*3+2] = r * Math.cos(phi) * 0.4;
+          lives[i] = 0;
+          maxLives[i] = 4 + Math.random() * 6;
+        }
+
+        for (let i = 0; i < count; i++) {
+          spawnParticle(i);
+          const c = pickWeighted(palette, weights);
+          colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+          const roll = Math.random();
+          if      (roll < 0.80) sizes[i] = 2.5 + Math.random() * 3;
+          else if (roll < 0.97) sizes[i] = 7 + Math.random() * 8;
+          else                  sizes[i] = 18 + Math.random() * 20;
+          phases[i] = Math.random() * Math.PI * 2;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+        geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+        geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+
+        const mat = new THREE.ShaderMaterial({
+          uniforms: premiumUniforms({
+            glowSoftness: 0.55,
+            spikes:       0.15,
+            pixelRatio:   ctx.renderer.getPixelRatio(),
+            size:         config.size,
+            brightness:   config.brightness,
+            twinkle:      0.4,
+            persp:        320.0,
+            energyComp:   0.65,
+          }),
+          vertexShader: premiumVertex(''),
+          fragmentShader: PREMIUM_FRAGMENT,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          vertexColors: true,
+        });
+
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+
+        // Slowly drifting noise sample offset gives the field its evolution
+        let timeAcc = 0;
+
+        return {
+          points, mat, geo,
+          requestTrail: true,                     // tell core to enable trail buffer
+          getTrailAlpha: () => 1.0 - (config.trail || 0),
+
+          update(dt, time, speedMul) {
+            mat.uniforms.uTime.value = time;
+            timeAcc += dt * speedMul;
+
+            const pos = geo.attributes.position.array;
+            const cnt = pos.length / 3;
+            const SCALE = 0.08;          // noise sample scale
+            const VEL   = 6.5;           // velocity multiplier
+
+            for (let i = 0; i < cnt; i++) {
+              const k = i * 3;
+              lives[i] += dt * speedMul;
+
+              // Sample curl of 3D noise at this particle's position to get velocity
+              const v = curlNoise(
+                pos[k]   * SCALE + timeAcc * 0.1,
+                pos[k+1] * SCALE,
+                pos[k+2] * SCALE + timeAcc * 0.07
+              );
+
+              pos[k]   += v[0] * VEL * dt * speedMul;
+              pos[k+1] += v[1] * VEL * dt * speedMul;
+              pos[k+2] += v[2] * VEL * dt * speedMul;
+
+              // Recycle particles that age out or wander too far
+              const dist2 = pos[k]*pos[k] + pos[k+1]*pos[k+1] + pos[k+2]*pos[k+2];
+              if (lives[i] > maxLives[i] || dist2 > FIELD*FIELD*1.6) {
+                spawnParticle(i);
+              }
+            }
+            geo.attributes.position.needsUpdate = true;
+          },
+
+          applyParam(key, value) {
+            if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+            if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+          },
+
+          dispose() {
+            scene.remove(points);
+            geo.dispose();
+            mat.uniforms.uTexture.value.dispose();
+            mat.dispose();
+          },
+        };
+      }
+    },
+
+    // ----------------------------------------------------------------
+    // 4. Supernova — radial explosion from center, particles fly outward
+    //    and fade. Heroic light-show vibe, white-blue palette.
+    // ----------------------------------------------------------------
+    'supernova': {
+      defaults: {
+        background:  'radial-gradient(circle at 50% 50%, #0a1838 0%, #02050f 60%, #000 100%)',
+        density:     1.0,
+        size:        1.0,
+        brightness:  1.0,
+        speed:       1.0,
+        blur:        1,
+        haze:        0.5,                  // supernova benefits from glow halo
+        hazeColor:   '#4a7cff',
+        palette:     'supernova',
+      },
+
+      build(ctx) {
+        const { scene, camera, config } = ctx;
+        const COUNT_BASE = 4000;
+        const count = Math.max(200, Math.round(COUNT_BASE * config.density));
+
+        camera.position.set(0, 0, 30);
+        camera.lookAt(0, 0, 0);
+        scene.fog = null;
+
+        const pal = resolvePalette(config.palette);
+        const palette = pal.colors.map(c => new THREE.Color(c));
+        const weights = config.weights || pal.weights;
+
+        const positions = new Float32Array(count * 3);
+        const colors    = new Float32Array(count * 3);
+        const sizes     = new Float32Array(count);
+        const phases    = new Float32Array(count);
+        const velocities = new Float32Array(count * 3);  // outward velocity vector
+        const lives     = new Float32Array(count);
+        const maxLives  = new Float32Array(count);
+
+        function spawnParticle(i) {
+          // Start at origin (slightly randomized within tiny radius)
+          const r = Math.random() * 0.4;
+          const theta = Math.random() * Math.PI * 2;
+          const phi = Math.acos(2 * Math.random() - 1);
+          positions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+          positions[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+          positions[i*3+2] = r * Math.cos(phi);
+
+          // Random outward velocity
+          const speed = 4 + Math.random() * 14;
+          const vTheta = Math.random() * Math.PI * 2;
+          const vPhi   = Math.acos(2 * Math.random() - 1);
+          velocities[i*3]   = speed * Math.sin(vPhi) * Math.cos(vTheta);
+          velocities[i*3+1] = speed * Math.sin(vPhi) * Math.sin(vTheta);
+          velocities[i*3+2] = speed * Math.cos(vPhi) * 0.6;  // flatter on Z
+
+          lives[i] = 0;
+          maxLives[i] = 1.5 + Math.random() * 3.5;
+        }
+
+        for (let i = 0; i < count; i++) {
+          spawnParticle(i);
+          // Stagger initial lives so particles don't all spawn at once
+          lives[i] = Math.random() * maxLives[i];
+          // Pre-advance position
+          positions[i*3]   += velocities[i*3]   * lives[i];
+          positions[i*3+1] += velocities[i*3+1] * lives[i];
+          positions[i*3+2] += velocities[i*3+2] * lives[i];
+
+          const c = pickWeighted(palette, weights);
+          colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+          const roll = Math.random();
+          if      (roll < 0.85) sizes[i] = 3 + Math.random() * 4;
+          else if (roll < 0.97) sizes[i] = 9 + Math.random() * 10;
+          else                  sizes[i] = 22 + Math.random() * 25;
+          phases[i] = Math.random() * Math.PI * 2;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+        geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+        geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+        geo.setAttribute('aLife',    new THREE.BufferAttribute(lives,     1));
+        geo.setAttribute('aMaxLife', new THREE.BufferAttribute(maxLives,  1));
+
+        const mat = new THREE.ShaderMaterial({
+          uniforms: premiumUniforms({
+            glowSoftness: 0.5,
+            spikes:       0.4,            // supernova bursts get strong spikes
+            pixelRatio:   ctx.renderer.getPixelRatio(),
+            size:         config.size,
+            brightness:   config.brightness,
+            twinkle:      0.3,            // moderate; the lifetime fade carries the drama
+            persp:        320.0,
+            energyComp:   0.65,
+          }),
+          vertexShader: `
+            attribute float aSize, aPhase, aLife, aMaxLife;
+            uniform float uTime, uPixelRatio, uSizeMul, uTwinkleStr, uPersp, uEnergyComp;
+            varying vec3 vColor;
+            varying float vAlpha;
+            varying float vEnergyScale;
+            varying float vDepthDim;
+            ${PREMIUM_VERTEX_SHARED}
+            void main() {
+              vColor = color;
+              float lifeT = aLife / max(aMaxLife, 0.001);
+              float fadeIn  = smoothstep(0.0, 0.08, lifeT);
+              float fadeOut = 1.0 - smoothstep(0.4, 1.0, lifeT);
+              float twink = computeTwinkle(uTime, aPhase, uTwinkleStr);
+              vAlpha = fadeIn * fadeOut * twink;
+              // Particles shrink as they age (energy dissipates)
+              float sizeFalloff = mix(1.2, 0.4, lifeT);
+              vec4 mv = modelViewMatrix * vec4(position, 1.0);
+              float depth = -mv.z;
+              float pointPx = aSize * uSizeMul * uPixelRatio * sizeFalloff * (uPersp / depth);
+              gl_PointSize = pointPx;
+              vEnergyScale = energyScale(pointPx, uEnergyComp);
+              vDepthDim    = depthDim(depth);
+              gl_Position  = projectionMatrix * mv;
+            }
+          `,
+          fragmentShader: PREMIUM_FRAGMENT,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          vertexColors: true,
+        });
+
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+
+        return {
+          points, mat, geo,
+
+          update(dt, time, speedMul) {
+            mat.uniforms.uTime.value = time;
+            const pos     = geo.attributes.position.array;
+            const lifeArr = geo.attributes.aLife.array;
+            const cnt = pos.length / 3;
+            const drag = Math.exp(-0.5 * dt * speedMul);  // air resistance
+
+            for (let i = 0; i < cnt; i++) {
+              const k = i * 3;
+              lifeArr[i] += dt * speedMul;
+
+              if (lifeArr[i] > maxLives[i]) {
+                spawnParticle(i);
+                continue;
+              }
+
+              // Apply velocity with drag for natural deceleration
+              pos[k]   += velocities[i*3]   * dt * speedMul;
+              pos[k+1] += velocities[i*3+1] * dt * speedMul;
+              pos[k+2] += velocities[i*3+2] * dt * speedMul;
+              velocities[i*3]   *= drag;
+              velocities[i*3+1] *= drag;
+              velocities[i*3+2] *= drag;
+            }
+            geo.attributes.position.needsUpdate = true;
+            geo.attributes.aLife.needsUpdate = true;
+          },
+
+          applyParam(key, value) {
+            if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+            if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+          },
+
+          dispose() {
+            scene.remove(points);
+            geo.dispose();
+            mat.uniforms.uTexture.value.dispose();
+            mat.dispose();
+          },
+        };
+      }
+    },
+
+    // ----------------------------------------------------------------
+    // 5. Lava Eruption — particles spurt upward from bottom edge,
+    //    arc under gravity, fade as they cool.
+    // ----------------------------------------------------------------
+    'lava-eruption': {
+      defaults: {
+        background:  'linear-gradient(to top, #2a0805 0%, #1a0303 30%, #050000 70%, #000 100%)',
+        palette:     'magma',
+        blurMode:    'center-focus',
+        blur:        2,
+        size:        0.27,
+        brightness:  1.05,
+        speed:       0.41,
+        density:     1.73,
+        haze:        0.21,
+        hazeColor:   '#1a4a26',
+      },
+
+      build(ctx) {
+        const { scene, camera, config } = ctx;
+        const COUNT_BASE = 3500;
+        const count = Math.max(150, Math.round(COUNT_BASE * config.density));
+
+        camera.position.set(0, 5, 28);
+        camera.lookAt(0, 4, 0);
+        scene.fog = null;
+
+        const pal = resolvePalette(config.palette);
+        const palette = pal.colors.map(c => new THREE.Color(c));
+        const weights = config.weights || pal.weights;
+
+        const positions = new Float32Array(count * 3);
+        const colors    = new Float32Array(count * 3);
+        const sizes     = new Float32Array(count);
+        const phases    = new Float32Array(count);
+        const velocities = new Float32Array(count * 3);
+        const lives     = new Float32Array(count);
+        const maxLives  = new Float32Array(count);
+
+        const ERUPT_WIDTH = 30;
+        const GRAVITY = -8;
+
+        function spawnParticle(i) {
+          // Spawn along bottom edge, jittered slightly
+          positions[i*3]   = (Math.random() - 0.5) * ERUPT_WIDTH;
+          positions[i*3+1] = -8 + Math.random() * 1.5;
+          positions[i*3+2] = (Math.random() - 0.5) * 6;
+
+          // Mostly upward velocity with some horizontal spread
+          const upSpeed = 6 + Math.random() * 10;
+          velocities[i*3]   = (Math.random() - 0.5) * 4;
+          velocities[i*3+1] = upSpeed;
+          velocities[i*3+2] = (Math.random() - 0.5) * 2;
+
+          lives[i] = 0;
+          maxLives[i] = 1.8 + Math.random() * 2.5;
+        }
+
+        for (let i = 0; i < count; i++) {
+          spawnParticle(i);
+          // Stagger
+          lives[i] = Math.random() * maxLives[i];
+          const c = pickWeighted(palette, weights);
+          colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+          const roll = Math.random();
+          if      (roll < 0.80) sizes[i] = 3 + Math.random() * 4;
+          else if (roll < 0.97) sizes[i] = 8 + Math.random() * 10;
+          else                  sizes[i] = 20 + Math.random() * 22;
+          phases[i] = Math.random() * Math.PI * 2;
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color',    new THREE.BufferAttribute(colors,    3));
+        geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes,     1));
+        geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases,    1));
+        geo.setAttribute('aLife',    new THREE.BufferAttribute(lives,     1));
+        geo.setAttribute('aMaxLife', new THREE.BufferAttribute(maxLives,  1));
+
+        const mat = new THREE.ShaderMaterial({
+          uniforms: premiumUniforms({
+            glowSoftness: 0.5,
+            spikes:       0.25,
+            pixelRatio:   ctx.renderer.getPixelRatio(),
+            size:         config.size,
+            brightness:   config.brightness,
+            twinkle:      0.3,
+            persp:        320.0,
+            energyComp:   0.65,
+          }),
+          vertexShader: `
+            attribute float aSize, aPhase, aLife, aMaxLife;
+            uniform float uTime, uPixelRatio, uSizeMul, uTwinkleStr, uPersp, uEnergyComp;
+            varying vec3 vColor;
+            varying float vAlpha;
+            varying float vEnergyScale;
+            varying float vDepthDim;
+            varying float vCool;
+            ${PREMIUM_VERTEX_SHARED}
+            void main() {
+              vColor = color;
+              float lifeT = aLife / max(aMaxLife, 0.001);
+              float fadeIn  = smoothstep(0.0, 0.05, lifeT);
+              float fadeOut = 1.0 - smoothstep(0.5, 1.0, lifeT);
+              float twink = computeTwinkle(uTime, aPhase, uTwinkleStr);
+              vAlpha = fadeIn * fadeOut * twink;
+              // "Cooling" — embers dim as they age
+              vCool = 1.0 - lifeT * 0.6;
+              vec4 mv = modelViewMatrix * vec4(position, 1.0);
+              float depth = -mv.z;
+              float pointPx = aSize * uSizeMul * uPixelRatio * (uPersp / depth);
+              gl_PointSize = pointPx;
+              vEnergyScale = energyScale(pointPx, uEnergyComp);
+              vDepthDim    = depthDim(depth);
+              gl_Position  = projectionMatrix * mv;
+            }
+          `,
+          fragmentShader: `
+            uniform sampler2D uTexture;
+            uniform float uBrightness;
+            varying vec3 vColor;
+            varying float vAlpha;
+            varying float vEnergyScale;
+            varying float vDepthDim;
+            varying float vCool;
+            void main() {
+              vec4 tex = texture2D(uTexture, gl_PointCoord);
+              vec3 col = vColor * uBrightness * vCool;
+              float a = tex.a * tex.r * uBrightness * vAlpha * vEnergyScale * vDepthDim;
+              if (a < 0.01) discard;
+              gl_FragColor = vec4(col, a);
+            }
+          `,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          vertexColors: true,
+        });
+
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+
+        return {
+          points, mat, geo,
+
+          update(dt, time, speedMul) {
+            mat.uniforms.uTime.value = time;
+            const pos     = geo.attributes.position.array;
+            const lifeArr = geo.attributes.aLife.array;
+            const cnt = pos.length / 3;
+
+            for (let i = 0; i < cnt; i++) {
+              const k = i * 3;
+              lifeArr[i] += dt * speedMul;
+              if (lifeArr[i] > maxLives[i]) {
+                spawnParticle(i);
+                continue;
+              }
+              pos[k]   += velocities[i*3]   * dt * speedMul;
+              pos[k+1] += velocities[i*3+1] * dt * speedMul;
+              pos[k+2] += velocities[i*3+2] * dt * speedMul;
+              velocities[i*3+1] += GRAVITY * dt * speedMul;  // gravity pulls down
+            }
+            geo.attributes.position.needsUpdate = true;
+            geo.attributes.aLife.needsUpdate = true;
+          },
+
+          applyParam(key, value) {
+            if (key === 'size')       mat.uniforms.uSizeMul.value = value;
+            if (key === 'brightness') mat.uniforms.uBrightness.value = value;
+          },
+
+          dispose() {
+            scene.remove(points);
+            geo.dispose();
+            mat.uniforms.uTexture.value.dispose();
+            mat.dispose();
+          },
+        };
+      }
+    },
+
+    // ----------------------------------------------------------------
+    // 6. Ray Burst — particles spiraling outward from center in a single
+    //    direction, tracing log-spiral arcs. Built on the shared swirl
+    //    vortex builder.
+    // ----------------------------------------------------------------
+    'ray-burst': {
+      defaults: {
+        background:  'radial-gradient(circle at 50% 50%, #1a0a3a 0%, #050118 50%, #000 100%)',
+        palette:     'aurora',
+        blurMode:    'lens',
+        blur:        2,
+        size:        0.49,
+        brightness:  0.94,
+        speed:       0.50,
+        density:     0.43,
+        haze:        0.06,
+        hazeColor:   '#7faaff',
+      },
+      build(ctx) {
+        return buildSwirlVortex(ctx, { bidirectional: false });
+      }
+    },
+
+    // ----------------------------------------------------------------
+    // 6b. Bending Chaos — same swirl vortex but with ~8% of particles
+    //     spinning counter to the rest, producing crossing trails and a
+    //     turbulent "bending" feel.
+    // ----------------------------------------------------------------
+    'bending-chaos': {
+      defaults: {
+        background:  'radial-gradient(circle at 50% 50%, #1a0a3a 0%, #050118 50%, #000 100%)',
+        palette:     'aurora',
+        blurMode:    'lens',
+        blur:        2,
+        size:        0.49,
+        brightness:  0.94,
+        speed:       0.50,
+        density:     0.43,
+        haze:        0.06,
+        hazeColor:   '#7faaff',
+      },
+      build(ctx) {
+        return buildSwirlVortex(ctx, { bidirectional: true });
+      }
+    },
+
+    // ================================================================
+    // KERNEL-BASED EFFECTS (effects 7+)
+    // Each is a thin spec passed to buildKernelEffect.
+    // ================================================================
+
+    // 7. Dancing Waves — splashing, rocky-shore-like wave fountains.
+    //    Particles spawn along a horizontal line, get arc velocities tied
+    //    to a traveling wave function so multiple wave fronts spit
+    //    particles upward in coordinated bursts.
+    'dancing-waves': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #02060e 0%, #04102a 60%, #061a3a 100%)',
+        density:     0.55,        // intentionally low — splashes look better with breathing room
+        size:        0.55,        // small particles, lots of negative space
+        brightness:  0.85,
+        speed:       0.4,         // slow & meditative
+        blur:        1,
+        blurMode:    'lens',
+        haze:        0.35,
+        hazeColor:   '#3a90d4',
+        palette:     'cobalt-cyan',
+      },
+      build(ctx) {
+        const SHORE_W = 60, GRAV = -9;
+        return buildKernelEffect(ctx, {
+          countBase: 2200,
+          cameraPos: [0, 3, 22],
+          cameraTarget: [0, 1, 0],
+          glowSoftness: 0.55,
+          twinkle: 0.2,
+          useLifetime: true,
+          sizeRange: { small:[1.5,3], smallW:0.85, medium:[5,9], mediumW:0.97, large:[14,22] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            // Spawn along the bottom shore, with rocky x-clustering
+            const x = (Math.random() - 0.5) * SHORE_W;
+            // Wave amplitude varies along x — peaks at certain points
+            // (those become the "rocks" the waves crash on)
+            const rockMod = Math.sin(x * 0.4) * 0.5 + Math.cos(x * 0.27 + 1.3) * 0.5;
+            const surge = Math.max(0, rockMod);
+
+            p[i*3]   = x;
+            p[i*3+1] = -3 + Math.random() * 1.0;
+            p[i*3+2] = (Math.random() - 0.5) * 4;
+
+            // Upward velocity scaled by local surge — particles burst more
+            // where the "wave hits the rock"
+            const vy = 5 + surge * 7 + Math.random() * 4;
+            v[i*3]   = (Math.random() - 0.5) * 3;
+            v[i*3+1] = vy;
+            v[i*3+2] = (Math.random() - 0.5) * 1.5;
+
+            k.maxLives[i] = 2.2 + Math.random() * 1.8;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            p[i*3]   += v[i*3]   * k.dt;
+            p[i*3+1] += v[i*3+1] * k.dt;
+            p[i*3+2] += v[i*3+2] * k.dt;
+            v[i*3+1] += GRAV * k.dt;
+          }
+        });
+      }
+    },
+
+    // 8. Cherry Blossom — petals drift down, gentle horizontal sway.
+    'cherry-blossom': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #1a0a14 0%, #0a0510 100%)',
+        palette:     'sakura',
+        blurMode:    'uniform',
+        blur:        2,
+        size:        1,
+        brightness:  0.75,
+        speed:       1.19,
+        density:     0.60,
+        haze:        0.30,
+        hazeColor:   '#ff9ec7',
+      },
+      build(ctx) {
+        const W = 50, H_TOP = 18, H_BOT = -18;
+        return buildKernelEffect(ctx, {
+          countBase: 800,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.1,
+          useLifetime: false,
+          sizeRange: { small:[3,5], smallW:0.65, medium:[7,12], mediumW:0.95, large:[14,18] },
+          glowSoftness: 0.4,
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = H_TOP + Math.random() * 6;
+            p[i*3+2] = (Math.random() - 0.5) * 12;
+            sc[i*4]   = 0.5 + Math.random() * 1.0;          // fall speed
+            sc[i*4+1] = 0.3 + Math.random() * 0.7;          // sway amplitude
+            sc[i*4+2] = 0.6 + Math.random() * 1.2;          // sway frequency
+            sc[i*4+3] = Math.random() * Math.PI * 2;        // sway phase
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3+1] -= sc[i*4] * k.dt * 1.5;
+            p[i*3]   += Math.sin(k.time * sc[i*4+2] + sc[i*4+3]) * sc[i*4+1] * k.dt * 0.8;
+            if (p[i*3+1] < H_BOT) {
+              p[i*3+1] = H_TOP + Math.random() * 4;
+              p[i*3]   = (Math.random() - 0.5) * W;
+            }
+          }
+        });
+      }
+    },
+
+    // 9. Firefly Meadow — sparse glowing dots, gentle drift, blink in/out.
+    'firefly-meadow': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 100%, #0a2812 0%, #050a08 60%, #020503 100%)',
+        density:     0.35,
+        size:        0.7,
+        brightness:  1.0,
+        speed:       0.3,
+        blur:        1,
+        blurMode:    'lens',
+        haze:        0.45,
+        hazeColor:   '#a8d860',
+        palette:     'firefly',
+      },
+      build(ctx) {
+        const W = 35, H = 20;
+        return buildKernelEffect(ctx, {
+          countBase: 350,
+          cameraPos: [0, 0, 22],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.85,        // strong twinkle — they blink
+          useLifetime: false,
+          sizeRange: { small:[3,5], smallW:0.6, medium:[8,13], mediumW:0.95, large:[18,28] },
+          glowSoftness: 0.7,
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = (Math.random() - 0.5) * H;
+            p[i*3+2] = (Math.random() - 0.5) * 10;
+            sc[i*4]   = 0.3 + Math.random() * 0.6;          // drift speed scale
+            sc[i*4+1] = Math.random() * Math.PI * 2;        // drift dir phase
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const t = k.time * 0.4 + sc[i*4+1];
+            p[i*3]   += Math.sin(t) * sc[i*4] * k.dt * 0.8;
+            p[i*3+1] += Math.cos(t * 0.7) * sc[i*4] * k.dt * 0.6;
+          }
+        });
+      }
+    },
+
+    // 10. Snow Storm — directional snowfall with wind variation.
+    'snow-storm': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #1a2030 0%, #0a1018 60%, #020408 100%)',
+        density:     1.4,
+        size:        0.6,
+        brightness:  0.85,
+        speed:       0.7,
+        blur:        1.5,
+        blurMode:    'motion',
+        haze:        0.25,
+        hazeColor:   '#a0c0d8',
+        palette:     'mono-white',
+      },
+      build(ctx) {
+        const W = 60, H_TOP = 25, H_BOT = -22;
+        return buildKernelEffect(ctx, {
+          countBase: 4000,
+          cameraPos: [0, 0, 28],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.15,
+          useLifetime: false,
+          sizeRange: { small:[1.5,3], smallW:0.85, medium:[4,7], mediumW:0.97, large:[10,18] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W * 1.4;
+            p[i*3+1] = Math.random() * (H_TOP - H_BOT) + H_BOT;
+            p[i*3+2] = (Math.random() - 0.5) * 18;
+            sc[i*4]   = 1.5 + Math.random() * 2.5;
+            sc[i*4+1] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const wind = Math.sin(k.time * 0.4 + p[i*3+1] * 0.05) * 1.2;
+            p[i*3+1] -= sc[i*4] * k.dt * 1.2;
+            p[i*3]   += (wind + Math.sin(k.time * 1.5 + sc[i*4+1]) * 0.3) * k.dt;
+            if (p[i*3+1] < H_BOT) {
+              p[i*3+1] = H_TOP + Math.random() * 4;
+              p[i*3]   = (Math.random() - 0.5) * W * 1.4;
+            }
+            if (p[i*3] > W * 0.8) p[i*3] -= W * 1.6;
+            if (p[i*3] < -W * 0.8) p[i*3] += W * 1.6;
+          }
+        });
+      }
+    },
+
+    // 11. Cosmic Dust — slow swirling galactic dust on dark space.
+    'cosmic-dust': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #100828 0%, #050218 50%, #000000 100%)',
+        density:     1.0,
+        size:        0.5,
+        brightness:  0.9,
+        speed:       0.2,
+        blur:        2,
+        blurMode:    'center-focus',
+        haze:        0.5,
+        hazeColor:   '#6a4dff',
+        palette:     'cosmic',
+      },
+      build(ctx) {
+        return buildKernelEffect(ctx, {
+          countBase: 4500,
+          cameraPos: [0, 0, 30],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.3,
+          useLifetime: false,
+          sizeRange: { small:[2,4], smallW:0.85, medium:[6,11], mediumW:0.97, large:[15,24] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            // Disc distribution — galaxy-like
+            const r = Math.sqrt(Math.random()) * 35;
+            const a = Math.random() * Math.PI * 2;
+            p[i*3]   = Math.cos(a) * r;
+            p[i*3+1] = Math.sin(a) * r * 0.6;       // squished disc
+            p[i*3+2] = (Math.random() - 0.5) * 8;
+            sc[i*4]   = a;
+            sc[i*4+1] = r;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            // Differential rotation: inner particles spin faster than outer
+            const angVel = 0.08 / Math.max(0.5, sc[i*4+1] * 0.05);
+            sc[i*4] += angVel * k.dt;
+            // Add tiny noise for organic feel
+            const n = curlNoise(p[i*3] * 0.04, p[i*3+1] * 0.04, k.time * 0.05);
+            sc[i*4+1] += n[0] * k.dt * 0.4;          // radius drift
+            p[i*3]   = Math.cos(sc[i*4]) * sc[i*4+1];
+            p[i*3+1] = Math.sin(sc[i*4]) * sc[i*4+1] * 0.6;
+          }
+        });
+      }
+    },
+
+    // 12. Plasma Storm — chaotic high-energy particles, electric.
+    'plasma-storm': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #1a0838 0%, #08021a 60%, #000 100%)',
+        palette:     'plasma',
+        blurMode:    'vignette-blur',
+        blur:        0.5,
+        size:        0.56,
+        brightness:  1.20,
+        speed:       0.21,
+        density:     0.71,
+        haze:        0.60,
+        hazeColor:   '#9a4dff',
+      },
+      build(ctx) {
+        return buildKernelEffect(ctx, {
+          countBase: 5500,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.6,
+          useLifetime: false,
+          sizeRange: { small:[1.5,3.5], smallW:0.88, medium:[5,9], mediumW:0.98, large:[14,22] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions;
+            const r = Math.pow(Math.random(), 0.4) * 22;
+            const a = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2 * Math.random() - 1);
+            p[i*3]   = r * Math.sin(ph) * Math.cos(a);
+            p[i*3+1] = r * Math.sin(ph) * Math.sin(a);
+            p[i*3+2] = r * Math.cos(ph) * 0.5;
+          },
+          step(k) {
+            const i = k.i, p = k.positions;
+            // Strong, fast-evolving curl noise → chaotic motion
+            const n = curlNoise(
+              p[i*3]   * 0.15 + k.time * 0.3,
+              p[i*3+1] * 0.15,
+              p[i*3+2] * 0.15 + k.time * 0.2
+            );
+            p[i*3]   += n[0] * 14 * k.dt;
+            p[i*3+1] += n[1] * 14 * k.dt;
+            p[i*3+2] += n[2] * 14 * k.dt;
+            // Pull toward center if drifting too far
+            const d2 = p[i*3]*p[i*3] + p[i*3+1]*p[i*3+1];
+            if (d2 > 900) {
+              p[i*3]   *= 0.96;
+              p[i*3+1] *= 0.96;
+            }
+          }
+        });
+      }
+    },
+
+    // 13. Bubble Rise — bubbles floating up, slight wobble.
+    'bubble-rise': {
+      defaults: {
+        background:  'linear-gradient(to top, #00141a 0%, #001828 50%, #002030 100%)',
+        palette:     'supernova',
+        blurMode:    'lens',
+        blur:        2.5,
+        size:        1.20,
+        brightness:  0.81,
+        speed:       1.78,
+        density:     1.19,
+        haze:        0.40,
+        hazeColor:   '#3aa8c8',
+      },
+      build(ctx) {
+        const W = 40, H_TOP = 20, H_BOT = -20;
+        return buildKernelEffect(ctx, {
+          countBase: 600,
+          cameraPos: [0, 0, 22],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.05,
+          useLifetime: false,
+          sizeRange: { small:[5,9], smallW:0.55, medium:[12,20], mediumW:0.92, large:[26,40] },
+          glowSoftness: 0.65,
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = H_BOT - Math.random() * 5;
+            p[i*3+2] = (Math.random() - 0.5) * 12;
+            sc[i*4]   = 0.8 + Math.random() * 1.5;       // rise speed
+            sc[i*4+1] = 0.4 + Math.random() * 0.8;       // wobble amp
+            sc[i*4+2] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3+1] += sc[i*4] * k.dt;
+            p[i*3]   += Math.sin(k.time * 1.5 + sc[i*4+2]) * sc[i*4+1] * k.dt;
+            if (p[i*3+1] > H_TOP) {
+              p[i*3+1] = H_BOT - Math.random() * 5;
+              p[i*3]   = (Math.random() - 0.5) * W;
+            }
+          }
+        });
+      }
+    },
+
+    // 14. Falling Leaves — autumn leaves, tumbling sway.
+    'falling-leaves': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #2a1408 0%, #1a0a04 50%, #0a0502 100%)',
+        palette:     'autumn',
+        blurMode:    'uniform',
+        blur:        1.5,
+        size:        1,
+        brightness:  0.85,
+        speed:       1.79,
+        density:     0.50,
+        haze:        0.35,
+        hazeColor:   '#d4762a',
+      },
+      build(ctx) {
+        const W = 50, H_TOP = 22, H_BOT = -22;
+        return buildKernelEffect(ctx, {
+          countBase: 600,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.1,
+          useLifetime: false,
+          sizeRange: { small:[3,6], smallW:0.55, medium:[8,14], mediumW:0.92, large:[16,24] },
+          glowSoftness: 0.4,
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = H_TOP + Math.random() * 6;
+            p[i*3+2] = (Math.random() - 0.5) * 15;
+            sc[i*4]   = 0.5 + Math.random() * 0.8;
+            sc[i*4+1] = 1.0 + Math.random() * 1.5;       // wide sway
+            sc[i*4+2] = 0.5 + Math.random() * 1.0;       // sway freq
+            sc[i*4+3] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3+1] -= sc[i*4] * k.dt * 1.2;
+            // Tumble: x sways, with z also varying so leaves rotate visually
+            p[i*3]   += Math.sin(k.time * sc[i*4+2] + sc[i*4+3]) * sc[i*4+1] * k.dt;
+            p[i*3+2] += Math.cos(k.time * sc[i*4+2] * 0.8 + sc[i*4+3]) * 0.6 * k.dt;
+            if (p[i*3+1] < H_BOT) {
+              p[i*3+1] = H_TOP + Math.random() * 4;
+              p[i*3]   = (Math.random() - 0.5) * W;
+            }
+          }
+        });
+      }
+    },
+
+    // 15. Aurora Veil — flowing curtains of color, wave-like.
+    'aurora-veil': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #000a1a 0%, #050218 100%)',
+        palette:     'aurora',
+        blurMode:    'lens',
+        blur:        6,
+        size:        0.77,
+        brightness:  0.90,
+        speed:       0.30,
+        density:     1.20,
+        haze:        0.55,
+        hazeColor:   '#5cffb3',
+      },
+      build(ctx) {
+        const W = 50, H = 25;
+        return buildKernelEffect(ctx, {
+          countBase: 6500,
+          cameraPos: [0, 0, 28],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.2,
+          useLifetime: false,
+          sizeRange: { small:[2,4], smallW:0.88, medium:[5,8], mediumW:0.98, large:[12,18] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch, hp = k.homePos;
+            const x = (Math.random() - 0.5) * W;
+            const y = (Math.random() - 0.5) * H;
+            hp[i*3] = x; hp[i*3+1] = y;
+            p[i*3]   = x;
+            p[i*3+1] = y;
+            p[i*3+2] = (Math.random() - 0.5) * 8;
+            sc[i*4] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, hp = k.homePos, sc = k.scratch;
+            // Vertical curtains: y oscillates with x-dependent wave
+            const wave = Math.sin(hp[i*3] * 0.12 + k.time * 0.6) * 3;
+            const wave2 = Math.cos(hp[i*3] * 0.08 - k.time * 0.4) * 1.5;
+            p[i*3]   = hp[i*3] + wave2;
+            p[i*3+1] = hp[i*3+1] + wave;
+          }
+        });
+      }
+    },
+
+    // 16. Meteor Shower — diagonal streaks falling.
+    'meteor-shower': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 30% 0%, #0a1838 0%, #02050f 60%, #000 100%)',
+        palette:     'supernova',
+        blurMode:    'motion',
+        blur:        1,
+        size:        0.55,
+        brightness:  1.05,
+        speed:       0.53,
+        density:     0.70,
+        haze:        0.30,
+        hazeColor:   '#bfd9ff',
+      },
+      build(ctx) {
+        const W = 60, H_TOP = 30, H_BOT = -30;
+        const ANG = -Math.PI * 0.32;       // diagonal direction
+        return buildKernelEffect(ctx, {
+          countBase: 1200,
+          cameraPos: [0, 0, 28],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.1,
+          useLifetime: true,
+          sizeRange: { small:[1.5,3.5], smallW:0.8, medium:[5,10], mediumW:0.97, large:[14,22] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            p[i*3]   = -W/2 + Math.random() * W;
+            p[i*3+1] = H_TOP + Math.random() * 10;
+            p[i*3+2] = (Math.random() - 0.5) * 15;
+            const sp = 12 + Math.random() * 18;
+            v[i*3]   = Math.cos(ANG) * sp;
+            v[i*3+1] = Math.sin(ANG) * sp;
+            v[i*3+2] = 0;
+            k.maxLives[i] = 2.5 + Math.random() * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            p[i*3]   += v[i*3]   * k.dt;
+            p[i*3+1] += v[i*3+1] * k.dt;
+          }
+        });
+      }
+    },
+
+    // 17. Confetti Drop — celebratory tumble.
+    'confetti-drop': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #1a1028 0%, #0a0518 100%)',
+        palette:     'confetti',
+        blurMode:    'uniform',
+        blur:        0.50,
+        size:        0.30,
+        brightness:  0.95,
+        speed:       0.70,
+        density:     0.70,
+        haze:        0.62,
+        hazeColor:   '#ff8acc',
+      },
+      build(ctx) {
+        const W = 50, H_TOP = 25, H_BOT = -25;
+        return buildKernelEffect(ctx, {
+          countBase: 1400,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.05,
+          useLifetime: false,
+          sizeRange: { small:[2,4], smallW:0.5, medium:[6,11], mediumW:0.92, large:[14,22] },
+          glowSoftness: 0.35,
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = H_TOP + Math.random() * 8;
+            p[i*3+2] = (Math.random() - 0.5) * 12;
+            sc[i*4]   = 1.5 + Math.random() * 2;
+            sc[i*4+1] = 1.5 + Math.random() * 2.0;
+            sc[i*4+2] = 1.0 + Math.random() * 2.0;
+            sc[i*4+3] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3+1] -= sc[i*4] * k.dt * 1.5;
+            p[i*3]   += Math.sin(k.time * sc[i*4+2] + sc[i*4+3]) * sc[i*4+1] * k.dt;
+            if (p[i*3+1] < H_BOT) {
+              p[i*3+1] = H_TOP + Math.random() * 6;
+              p[i*3]   = (Math.random() - 0.5) * W;
+            }
+          }
+        });
+      }
+    },
+
+    // 18. Galaxy Spiral — log-spiral arms.
+    'galaxy-spiral': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #0a0828 0%, #030218 60%, #000 100%)',
+        density:     1.0,
+        size:        0.5,
+        brightness:  1.0,
+        speed:       0.25,
+        blur:        1,
+        blurMode:    'center-focus',
+        haze:        0.5,
+        hazeColor:   '#7a8aff',
+        palette:     'cosmic',
+      },
+      build(ctx) {
+        return buildKernelEffect(ctx, {
+          countBase: 5000,
+          cameraPos: [0, 0, 32],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.4,
+          useLifetime: false,
+          sizeRange: { small:[1.5,3], smallW:0.85, medium:[4,8], mediumW:0.97, large:[12,20] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const arm = Math.floor(Math.random() * 3);                    // 3 arms
+            const t = Math.random();
+            const armAngle = arm * (Math.PI * 2 / 3);
+            const r = 1 + Math.pow(t, 0.7) * 30;
+            const angle = armAngle + Math.log(r + 1) * 1.8 + (Math.random() - 0.5) * 0.5;
+            p[i*3]   = Math.cos(angle) * r;
+            p[i*3+1] = Math.sin(angle) * r * 0.65;
+            p[i*3+2] = (Math.random() - 0.5) * 4;
+            sc[i*4]   = angle;
+            sc[i*4+1] = r;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const angVel = 0.4 / Math.max(1, sc[i*4+1] * 0.15);
+            sc[i*4] += angVel * k.dt;
+            p[i*3]   = Math.cos(sc[i*4]) * sc[i*4+1];
+            p[i*3+1] = Math.sin(sc[i*4]) * sc[i*4+1] * 0.65;
+          }
+        });
+      }
+    },
+
+    // 19. Underwater — slow upward bubbles + horizontal sway, very dreamy.
+    'underwater': {
+      defaults: {
+        background:  'linear-gradient(to top, #001218 0%, #002438 50%, #003858 100%)',
+        palette:     'supernova',
+        blurMode:    'lens',
+        blur:        3,
+        size:        0.70,
+        brightness:  0.70,
+        speed:       1.96,
+        density:     0.55,
+        haze:        0.55,
+        hazeColor:   '#3aa8d4',
+      },
+      build(ctx) {
+        const W = 50, H = 30;
+        return buildKernelEffect(ctx, {
+          countBase: 1200,
+          cameraPos: [0, 0, 24],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.1,
+          useLifetime: false,
+          sizeRange: { small:[2,4], smallW:0.6, medium:[6,12], mediumW:0.93, large:[18,30] },
+          glowSoftness: 0.7,
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = -H/2 - Math.random() * 5;
+            p[i*3+2] = (Math.random() - 0.5) * 14;
+            sc[i*4]   = 0.4 + Math.random() * 0.7;
+            sc[i*4+1] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3+1] += sc[i*4] * k.dt;
+            p[i*3]   += Math.sin(k.time * 0.6 + sc[i*4+1]) * 0.4 * k.dt;
+            if (p[i*3+1] > H/2) {
+              p[i*3+1] = -H/2 - Math.random() * 5;
+              p[i*3]   = (Math.random() - 0.5) * W;
+            }
+          }
+        });
+      }
+    },
+
+    // 20. Ember Drift — embers rising from a fire below, cooling as they rise.
+    'ember-drift': {
+      defaults: {
+        background:  'linear-gradient(to top, #2a0805 0%, #1a0303 30%, #050000 70%, #000 100%)',
+        density:     0.7,
+        size:        0.5,
+        brightness:  1.1,
+        speed:       0.5,
+        blur:        1,
+        blurMode:    'motion',
+        haze:        0.45,
+        hazeColor:   '#ff6633',
+        palette:     'magma',
+      },
+      build(ctx) {
+        const W = 35, H_TOP = 22, H_BOT = -10;
+        return buildKernelEffect(ctx, {
+          countBase: 1400,
+          cameraPos: [0, 4, 22],
+          cameraTarget: [0, 4, 0],
+          twinkle: 0.5,
+          useLifetime: true,
+          sizeRange: { small:[1.5,3], smallW:0.85, medium:[5,9], mediumW:0.97, large:[14,22] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = H_BOT + Math.random() * 2;
+            p[i*3+2] = (Math.random() - 0.5) * 8;
+            v[i*3]   = (Math.random() - 0.5) * 1.2;
+            v[i*3+1] = 2 + Math.random() * 3;
+            v[i*3+2] = (Math.random() - 0.5) * 0.6;
+            k.maxLives[i] = 3 + Math.random() * 3;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            p[i*3]   += v[i*3]   * k.dt;
+            p[i*3+1] += v[i*3+1] * k.dt;
+            p[i*3+2] += v[i*3+2] * k.dt;
+            // Slow horizontal jitter
+            v[i*3]   += Math.sin(k.time * 2 + i) * 0.3 * k.dt;
+            // Decelerate as they rise
+            v[i*3+1] *= Math.exp(-0.15 * k.dt);
+          }
+        });
+      }
+    },
+
+    // 21. Star Field — slow parallax twinkling stars.
+    'star-field': {
+      defaults: {
+        background:  '#000308',
+        palette:     'confetti',
+        blurMode:    'none',
+        blur:        0,
+        size:        0.48,
+        brightness:  1,
+        speed:       1.80,
+        density:     1.50,
+        haze:        0,
+        hazeColor:   '#ffffff',
+      },
+      build(ctx) {
+        return buildKernelEffect(ctx, {
+          countBase: 5500,
+          cameraPos: [0, 0, 30],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.55,
+          useLifetime: false,
+          sizeRange: { small:[1.5,3], smallW:0.92, medium:[4,7], mediumW:0.99, large:[10,16] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * 80;
+            p[i*3+1] = (Math.random() - 0.5) * 80;
+            p[i*3+2] = -10 - Math.random() * 60;       // varied depth
+            sc[i*4]   = 0.05 + Math.random() * 0.1;     // parallax speed
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   += sc[i*4] * k.dt;
+            if (p[i*3] > 40) p[i*3] = -40;
+          }
+        });
+      }
+    },
+
+    // 22. Sand Storm — horizontal blowing fine particles.
+    'sand-storm': {
+      defaults: {
+        background:  'linear-gradient(to bottom, #2a1a08 0%, #1a0f04 50%, #0a0502 100%)',
+        palette:     'desert',
+        blurMode:    'motion',
+        blur:        2,
+        size:        0.45,
+        brightness:  0.80,
+        speed:       0.25,
+        density:     1.60,
+        haze:        0.40,
+        hazeColor:   '#c8985a',
+      },
+      build(ctx) {
+        const W = 60, H = 30;
+        return buildKernelEffect(ctx, {
+          countBase: 5000,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.05,
+          useLifetime: false,
+          sizeRange: { small:[1,2.5], smallW:0.92, medium:[3,5], mediumW:0.99, large:[8,14] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = -W/2 - Math.random() * 5;
+            p[i*3+1] = (Math.random() - 0.5) * H;
+            p[i*3+2] = (Math.random() - 0.5) * 15;
+            sc[i*4]   = 8 + Math.random() * 10;          // base h-speed
+            sc[i*4+1] = Math.random() * Math.PI * 2;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   += sc[i*4] * k.dt;
+            p[i*3+1] += Math.sin(k.time * 2 + sc[i*4+1]) * 0.6 * k.dt;
+            if (p[i*3] > W/2 + 5) {
+              p[i*3]   = -W/2 - Math.random() * 5;
+              p[i*3+1] = (Math.random() - 0.5) * H;
+            }
+          }
+        });
+      }
+    },
+
+    // 23. Petal Burst — radial pink/red explosion of "petals".
+    'petal-burst': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #1a0612 0%, #08020a 60%, #000 100%)',
+        density:     0.9,
+        size:        0.85,
+        brightness:  0.95,
+        speed:       0.85,
+        blur:        1,
+        blurMode:    'lens',
+        haze:        0.55,
+        hazeColor:   '#ff5e8a',
+        palette:     'sakura',
+      },
+      build(ctx) {
+        return buildKernelEffect(ctx, {
+          countBase: 2500,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.15,
+          useLifetime: true,
+          sizeRange: { small:[2,4], smallW:0.6, medium:[6,12], mediumW:0.93, large:[16,26] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            const r = Math.random() * 0.5;
+            const a = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2 * Math.random() - 1);
+            p[i*3]   = r * Math.sin(ph) * Math.cos(a);
+            p[i*3+1] = r * Math.sin(ph) * Math.sin(a);
+            p[i*3+2] = r * Math.cos(ph);
+            const sp = 4 + Math.random() * 9;
+            v[i*3]   = sp * Math.sin(ph) * Math.cos(a);
+            v[i*3+1] = sp * Math.sin(ph) * Math.sin(a);
+            v[i*3+2] = sp * Math.cos(ph) * 0.4;
+            k.maxLives[i] = 2.5 + Math.random() * 2.5;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, v = k.velocities;
+            p[i*3]   += v[i*3]   * k.dt;
+            p[i*3+1] += v[i*3+1] * k.dt;
+            p[i*3+2] += v[i*3+2] * k.dt;
+            v[i*3]   *= Math.exp(-0.4 * k.dt);
+            v[i*3+1] *= Math.exp(-0.4 * k.dt);
+            // Slight downward gravity (petals fall after burst)
+            v[i*3+1] -= 1.5 * k.dt;
+          }
+        });
+      }
+    },
+
+    // 24. Quantum Field — particles snap between random nearby positions.
+    'quantum-field': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #001a1a 0%, #000a0e 60%, #000 100%)',
+        palette:     'magma',
+        blurMode:    'lens',
+        blur:        0.50,
+        size:        0.50,
+        brightness:  1,
+        speed:       0.05,
+        density:     1.59,
+        haze:        0.34,
+        hazeColor:   '#3affc4',
+      },
+      build(ctx) {
+        const W = 35, H = 25;
+        return buildKernelEffect(ctx, {
+          countBase: 3500,
+          cameraPos: [0, 0, 25],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.7,
+          useLifetime: false,
+          sizeRange: { small:[1.5,3], smallW:0.9, medium:[4,7], mediumW:0.98, large:[10,16] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            p[i*3]   = (Math.random() - 0.5) * W;
+            p[i*3+1] = (Math.random() - 0.5) * H;
+            p[i*3+2] = (Math.random() - 0.5) * 6;
+            sc[i*4]   = 0.5 + Math.random() * 2;        // snap timer
+            sc[i*4+1] = Math.random() * 0.5;            // accumulated time
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            sc[i*4+1] += k.dt;
+            if (sc[i*4+1] > sc[i*4]) {
+              // Snap to a nearby random location
+              p[i*3]   += (Math.random() - 0.5) * 4;
+              p[i*3+1] += (Math.random() - 0.5) * 4;
+              sc[i*4+1] = 0;
+              sc[i*4]   = 0.3 + Math.random() * 1.5;
+              // Wrap if drifted off
+              if (Math.abs(p[i*3])   > W/2) p[i*3]   = (Math.random() - 0.5) * W;
+              if (Math.abs(p[i*3+1]) > H/2) p[i*3+1] = (Math.random() - 0.5) * H;
+            }
+          }
+        });
+      }
+    },
+
+    // 25. Heartbeat Pulse — concentric expanding rings (still kernel-based)
+    'heartbeat-pulse': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #1a0008 0%, #08000a 60%, #000 100%)',
+        palette:     'confetti',
+        blurMode:    'uniform',
+        blur:        0,
+        size:        0.26,
+        brightness:  1.17,
+        speed:       0.12,
+        density:     1.20,
+        haze:        0.55,
+        hazeColor:   '#ff3a6a',
+      },
+      build(ctx) {
+        const NUM_RINGS = 4;
+        return buildKernelEffect(ctx, {
+          countBase: 3000,
+          cameraPos: [0, 0, 22],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.25,
+          useLifetime: true,
+          sizeRange: { small:[1.5,3.5], smallW:0.85, medium:[5,9], mediumW:0.97, large:[12,20] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const ring = Math.floor(Math.random() * NUM_RINGS);
+            const a = Math.random() * Math.PI * 2;
+            sc[i*4]   = a;
+            sc[i*4+1] = ring;
+            // Stagger ring start: each ring is at a different lifetime fraction
+            const startR = 0.5 + ring * 0.5;
+            p[i*3]   = Math.cos(a) * startR;
+            p[i*3+1] = Math.sin(a) * startR;
+            p[i*3+2] = (Math.random() - 0.5) * 1.5;
+            k.maxLives[i] = 2.5;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const a = sc[i*4];
+            // Ring expands radially with eased acceleration
+            const r = 0.5 + Math.pow(k.lives[i] / k.maxLives[i], 0.6) * 18;
+            p[i*3]   = Math.cos(a) * r;
+            p[i*3+1] = Math.sin(a) * r;
+          }
+        });
+      }
+    },
+
+    // 26. Spiral Drift — smooth Fibonacci-spiral particle motion.
+    'spiral-drift': {
+      defaults: {
+        background:  'radial-gradient(ellipse at 50% 50%, #0a0828 0%, #02041a 60%, #000 100%)',
+        density:     1.0,
+        size:        0.55,
+        brightness:  0.9,
+        speed:       0.3,
+        blur:        1.5,
+        blurMode:    'center-focus',
+        haze:        0.4,
+        hazeColor:   '#7a3aff',
+        palette:     'cosmic',
+      },
+      build(ctx) {
+        const PHI = (1 + Math.sqrt(5)) / 2;
+        return buildKernelEffect(ctx, {
+          countBase: 3000,
+          cameraPos: [0, 0, 28],
+          cameraTarget: [0, 0, 0],
+          twinkle: 0.3,
+          useLifetime: false,
+          sizeRange: { small:[1.5,3], smallW:0.88, medium:[4,7], mediumW:0.98, large:[12,18] },
+
+          spawn(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            const t = i;
+            const a = t * (Math.PI * 2 / PHI);
+            const r = Math.sqrt(t / k.count) * 22;
+            sc[i*4] = a;
+            sc[i*4+1] = r;
+            p[i*3]   = Math.cos(a) * r;
+            p[i*3+1] = Math.sin(a) * r;
+            p[i*3+2] = (Math.random() - 0.5) * 4;
+          },
+          step(k) {
+            const i = k.i, p = k.positions, sc = k.scratch;
+            sc[i*4] += 0.15 * k.dt;
+            // Subtle radial breathing
+            const rOff = Math.sin(k.time * 0.4 + sc[i*4+1] * 0.1) * 0.5;
+            const r = sc[i*4+1] + rOff;
+            p[i*3]   = Math.cos(sc[i*4]) * r;
+            p[i*3+1] = Math.sin(sc[i*4]) * r;
+          }
+        });
+      }
+    },
+  };
+
+  // ------------------------------------------------------------------
+  // GlitterFX class — the public API
+  // ------------------------------------------------------------------
+  class GlitterFX {
+    constructor(container, userConfig) {
+      if (!container) throw new Error('GlitterFX: container required');
+      if (typeof THREE === 'undefined') throw new Error('GlitterFX: THREE.js not loaded');
+
+      this.container = container;
+      this.config = Object.assign({ effect: 'emerald-shimmer' }, userConfig || {});
+
+      // Container setup (idempotent — won't break if already styled)
+      const cs = getComputedStyle(container);
+      if (cs.position === 'static') container.style.position = 'relative';
+      if (cs.overflow === 'visible') container.style.overflow = 'hidden';
+
+      // Canvas
+      this.canvas = document.createElement('canvas');
+      Object.assign(this.canvas.style, {
+        position: 'absolute',
+        inset: '0',
+        width: '100%',
+        height: '100%',
+        display: 'block',
+        zIndex: '0',
+        pointerEvents: 'none',
+      });
+      // Promote any direct children above the canvas
+      Array.from(container.children).forEach((el) => {
+        const childCS = getComputedStyle(el);
+        if (childCS.position === 'static') el.style.position = 'relative';
+        if (!el.style.zIndex) el.style.zIndex = '1';
+      });
+      container.insertBefore(this.canvas, container.firstChild);
+
+      // Background layer (dedicated div behind canvas — easier to swap)
+      this.bg = document.createElement('div');
+      Object.assign(this.bg.style, {
+        position: 'absolute',
+        inset: '0',
+        zIndex: '-2',          // sits behind canvas inside container
+        pointerEvents: 'none',
+      });
+      container.insertBefore(this.bg, this.canvas);
+
+      // Haze layer — soft glow halo, sits between background and canvas.
+      // Uses a CSS radial gradient driven by `haze` (0..1 intensity) and
+      // `hazeColor`. Composited with `mix-blend-mode: screen` so it adds
+      // light without washing out the background.
+      this.haze = document.createElement('div');
+      Object.assign(this.haze.style, {
+        position: 'absolute',
+        inset: '0',
+        zIndex: '-1',
+        pointerEvents: 'none',
+        mixBlendMode: 'screen',
+        opacity: '0',
+        transition: 'opacity 0.4s ease',
+      });
+      container.insertBefore(this.haze, this.canvas);
+
+      // Blur overlay — sits ABOVE the canvas with backdrop-filter, masked
+      // by a CSS gradient. This enables shaped blur modes (center-focus,
+      // vignette-blur) where blur is applied only to certain regions.
+      // For uniform/motion blur we just use canvas's own filter directly.
+      this.blurOverlay = document.createElement('div');
+      Object.assign(this.blurOverlay.style, {
+        position: 'absolute',
+        inset: '0',
+        zIndex: '1',          // above canvas but below content
+        pointerEvents: 'none',
+        backdropFilter: 'blur(0px)',
+        WebkitBackdropFilter: 'blur(0px)',
+        opacity: '0',
+        transition: 'opacity 0.3s ease',
+      });
+      container.appendChild(this.blurOverlay);
+      // Make sure blur overlay sits behind any user content
+      const childrenAfter = Array.from(container.children).filter(el =>
+        el !== this.bg && el !== this.haze && el !== this.canvas && el !== this.blurOverlay
+      );
+      childrenAfter.forEach(el => {
+        if (!el.style.zIndex || parseInt(el.style.zIndex, 10) < 2) el.style.zIndex = '2';
+      });
+
+      // Renderer
+      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      this.renderer.setClearColor(0x000000, 0);
+
+      this.scene  = new THREE.Scene();
+      this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 300);
+
+      this.clock = new THREE.Clock();
+      this._running = false;
+      this._effectInstance = null;
+      this._mergedConfig = null;
+
+      this._onResize = this._onResize.bind(this);
+      this._loop     = this._loop.bind(this);
+      window.addEventListener('resize', this._onResize);
+
+      this._buildEffect(this.config.effect);
+      this.start();
+    }
+
+    // ---- internals ----
+    // Merge order (later wins):
+    //   1. GLOBAL_DEFAULTS  — baseline visual treatment for any effect
+    //   2. effect.defaults  — effect-specific identity & overrides of the baseline
+    //   3. userConfig       — explicit per-instance overrides
+    _mergeConfig(effectName, userConfig) {
+      const def = EFFECTS[effectName].defaults;
+      return Object.assign({}, GLOBAL_DEFAULTS, def, userConfig || {});
+    }
+
+    _buildEffect(effectName) {
+      if (!EFFECTS[effectName]) throw new Error('GlitterFX: unknown effect ' + effectName);
+
+      // Tear down previous effect
+      if (this._effectInstance) {
+        this._effectInstance.dispose();
+        this._effectInstance = null;
+      }
+
+      this._mergedConfig = this._mergeConfig(effectName, this.config);
+      this.config.effect = effectName;
+
+      // Apply background + blur + haze
+      this.bg.style.background = this._mergedConfig.background;
+      this._applyBlur();
+      this._applyHaze();
+
+      // Build the new effect
+      this._effectInstance = EFFECTS[effectName].build({
+        scene: this.scene,
+        camera: this.camera,
+        renderer: this.renderer,
+        config: this._mergedConfig,
+      });
+
+      this._onResize();
+    }
+
+    /** Apply haze layer based on current config.
+     *  Haze is a soft radial glow layered behind the canvas — gives effects
+     *  an atmospheric "fog of light" without expensive shader work. */
+    _applyHaze() {
+      const intensity = Math.max(0, Math.min(1, this._mergedConfig.haze || 0));
+      const color = this._mergedConfig.hazeColor || '#ffffff';
+      if (intensity <= 0.01) {
+        this.haze.style.opacity = '0';
+        this.haze.style.background = 'transparent';
+        return;
+      }
+      // Two stacked radial gradients give a "puffier" halo than one
+      this.haze.style.background =
+        'radial-gradient(ellipse at 50% 50%, ' + color + ' 0%, transparent 55%),' +
+        'radial-gradient(ellipse at 30% 70%, ' + color + ' 0%, transparent 45%),' +
+        'radial-gradient(ellipse at 70% 30%, ' + color + ' 0%, transparent 45%)';
+      this.haze.style.opacity = String(intensity * 0.6);  // never quite 100%
+      this.haze.style.filter = 'blur(' + (20 + intensity * 40) + 'px)';
+    }
+
+    /** Apply blur effect — supports multiple modes:
+     *    none           — no blur at all
+     *    uniform        — even blur across whole canvas (CSS filter)
+     *    motion         — directional vertical blur (CSS filter)
+     *    center-focus   — sharp at center, blurred at edges (overlay + mask)
+     *    vignette-blur  — blurred at center, sharp at edges (overlay + mask)
+     *    lens           — light uniform blur + soft glow (CSS filter, gentle)
+     */
+    _applyBlur() {
+      const cfg = this._mergedConfig;
+      const blur = Math.max(0, cfg.blur || 0);
+      const mode = cfg.blurMode || 'uniform';
+
+      // Reset both layers
+      this.canvas.style.filter = '';
+      this.blurOverlay.style.backdropFilter = 'blur(0px)';
+      this.blurOverlay.style.WebkitBackdropFilter = 'blur(0px)';
+      this.blurOverlay.style.maskImage = '';
+      this.blurOverlay.style.WebkitMaskImage = '';
+      this.blurOverlay.style.opacity = '0';
+
+      if (blur < 0.05 || mode === 'none') return;
+
+      switch (mode) {
+        case 'motion': {
+          // Vertical motion blur — directional via CSS filter
+          // (true directional blur requires SVG filter; this is a vertical-only fake
+          // using two stacked filters which give an elongated softness.)
+          this.canvas.style.filter = 'blur(' + (blur * 0.4) + 'px)';
+          this.blurOverlay.style.backdropFilter = 'blur(' + blur + 'px)';
+          this.blurOverlay.style.WebkitBackdropFilter = 'blur(' + blur + 'px)';
+          this.blurOverlay.style.maskImage =
+            'linear-gradient(180deg, transparent 0%, black 30%, black 70%, transparent 100%)';
+          this.blurOverlay.style.WebkitMaskImage =
+            'linear-gradient(180deg, transparent 0%, black 30%, black 70%, transparent 100%)';
+          this.blurOverlay.style.opacity = '0.85';
+          break;
+        }
+        case 'center-focus': {
+          // Sharp at center → blurred at edges. The overlay's mask is
+          // *transparent at center* and *opaque at edges*, so backdrop-filter
+          // only blurs the edges of the canvas.
+          this.blurOverlay.style.backdropFilter = 'blur(' + blur + 'px)';
+          this.blurOverlay.style.WebkitBackdropFilter = 'blur(' + blur + 'px)';
+          this.blurOverlay.style.maskImage =
+            'radial-gradient(ellipse at center, transparent 25%, black 75%)';
+          this.blurOverlay.style.WebkitMaskImage =
+            'radial-gradient(ellipse at center, transparent 25%, black 75%)';
+          this.blurOverlay.style.opacity = '1';
+          break;
+        }
+        case 'vignette-blur': {
+          // Blurred at center, sharp at edges (opposite of center-focus).
+          this.blurOverlay.style.backdropFilter = 'blur(' + blur + 'px)';
+          this.blurOverlay.style.WebkitBackdropFilter = 'blur(' + blur + 'px)';
+          this.blurOverlay.style.maskImage =
+            'radial-gradient(ellipse at center, black 0%, transparent 70%)';
+          this.blurOverlay.style.WebkitMaskImage =
+            'radial-gradient(ellipse at center, black 0%, transparent 70%)';
+          this.blurOverlay.style.opacity = '1';
+          break;
+        }
+        case 'lens': {
+          // "Lens" — a mild uniform blur paired with a touch of brightness boost
+          // to simulate the dreamy bokeh of an out-of-focus lens.
+          this.canvas.style.filter = 'blur(' + (blur * 0.5) + 'px) brightness(1.04) saturate(1.05)';
+          break;
+        }
+        case 'uniform':
+        default: {
+          this.canvas.style.filter = 'blur(' + blur + 'px)';
+        }
+      }
+    }
+
+    _onResize() {
+      const w = this.container.clientWidth;
+      const h = this.container.clientHeight;
+      this.renderer.setSize(w, h, false);
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+    }
+
+    _loop() {
+      if (!this._running) return;
+      const dt = Math.min(this.clock.getDelta(), 0.05);
+      const t  = this.clock.getElapsedTime();
+      this._effectInstance.update(dt, t, this._mergedConfig.speed);
+      this.renderer.render(this.scene, this.camera);
+      this._raf = requestAnimationFrame(this._loop);
+    }
+
+    // ---- public API ("endpoints") ----
+
+    /** Start the animation loop (called automatically on construct). */
+    start() {
+      if (this._running) return;
+      this._running = true;
+      this.clock.start();
+      this._raf = requestAnimationFrame(this._loop);
+    }
+
+    /** Pause the animation loop. */
+    stop() {
+      this._running = false;
+      if (this._raf) cancelAnimationFrame(this._raf);
+    }
+
+    /** Update one or more config fields live.
+     *  Most fields apply instantly; `density`, `palette`, `effect` rebuild.
+     *
+     *  When switching effects via `effect: 'name'`, fields not explicitly
+     *  passed in the patch are RESET to the new effect's defaults — this
+     *  prevents stale values (palette, haze color, background) from the
+     *  previous effect leaking into the new one. */
+    update(patch) {
+      if (!patch) return;
+      const REBUILD_KEYS = ['density', 'palette', 'weights'];
+      const needsRebuild = Object.keys(patch).some(k => REBUILD_KEYS.indexOf(k) !== -1);
+
+      // Effect switch: drop all stale effect-bound fields except those the
+      // user explicitly passed alongside `effect` in this same patch.
+      if (patch.effect && patch.effect !== this.config.effect) {
+        const keep = { effect: patch.effect };
+        Object.keys(patch).forEach(k => { keep[k] = patch[k]; });
+        this.config = keep;
+        this._buildEffect(patch.effect);
+        return;
+      }
+
+      Object.assign(this.config, patch);
+
+      if (needsRebuild) {
+        this._buildEffect(this.config.effect);
+        return;
+      }
+
+      // Live patches
+      this._mergedConfig = this._mergeConfig(this.config.effect, this.config);
+
+      if ('background' in patch) this.bg.style.background = this._mergedConfig.background;
+      if ('blur' in patch || 'blurMode' in patch) this._applyBlur();
+      if ('size'       in patch) this._effectInstance.applyParam('size',       this._mergedConfig.size);
+      if ('brightness' in patch) this._effectInstance.applyParam('brightness', this._mergedConfig.brightness);
+      if ('haze'       in patch || 'hazeColor' in patch) this._applyHaze();
+      // speed is read every frame from this._mergedConfig.speed so it's already applied
+    }
+
+    /** Swap to a different effect, keeping the container. */
+    setEffect(name) {
+      this.update({ effect: name });
+    }
+
+    /** Fetch a config JSON from a URL and apply it. */
+    async loadConfig(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('GlitterFX.loadConfig: HTTP ' + res.status);
+      const cfg = await res.json();
+      this.update(cfg);
+      return cfg;
+    }
+
+    /** Return the list of registered effect names. */
+    static listEffects() { return Object.keys(EFFECTS); }
+
+    /** Return the effective default config for an effect — i.e. the
+     *  GLOBAL_DEFAULTS baseline with the effect's own defaults layered on top.
+     *  This is what an instance would actually use if no userConfig were passed.
+     *  Useful for sliders/UIs that want to reflect "what's about to happen".
+     *  Pass `{ raw: true }` to get just the effect's pristine defaults
+     *  without the global layer. */
+    static getDefaults(name, opts) {
+      const e = EFFECTS[name];
+      if (!e) return null;
+      if (opts && opts.raw) return Object.assign({}, e.defaults);
+      return Object.assign({}, GLOBAL_DEFAULTS, e.defaults);
+    }
+
+    /** Register a new effect at runtime. */
+    static registerEffect(name, def) {
+      if (!def || !def.build || !def.defaults) throw new Error('GlitterFX.registerEffect: invalid effect');
+      EFFECTS[name] = def;
+    }
+
+    /** Return the list of registered palette names. */
+    static listPalettes() { return Object.keys(PALETTES); }
+
+    /** Return a palette object by name (colors + weights). */
+    static getPalette(name) {
+      return PALETTES[name] ? Object.assign({}, PALETTES[name]) : null;
+    }
+
+    /** Register a new named palette at runtime. */
+    static registerPalette(name, colors, weights) {
+      if (!Array.isArray(colors) || !colors.length) throw new Error('GlitterFX.registerPalette: colors required');
+      PALETTES[name] = {
+        colors,
+        weights: weights || colors.map(() => 1),
+      };
+    }
+
+    /** Return the list of available blur modes. */
+    static listBlurModes() {
+      return ['none', 'uniform', 'lens', 'motion', 'center-focus', 'vignette-blur'];
+    }
+
+    /** Get a copy of the current global defaults. These are the values
+     *  layered between each effect's defaults and the user's per-instance
+     *  config. Existing GlitterFX instances are NOT updated retroactively;
+     *  the new defaults apply to instances created after the change. */
+    static getGlobalDefaults() {
+      return Object.assign({}, GLOBAL_DEFAULTS);
+    }
+
+    /** Patch the global defaults. Pass any subset of fields to override.
+     *  Pass `null` or `{}` to leave them unchanged. */
+    static setGlobalDefaults(patch) {
+      if (patch && typeof patch === 'object') {
+        GLOBAL_DEFAULTS = Object.assign({}, GLOBAL_DEFAULTS, patch);
+      }
+      return Object.assign({}, GLOBAL_DEFAULTS);
+    }
+
+    /** Set particle "scale" with automatic size↔density coupling.
+     *  As size grows, density shrinks proportionally to keep the field
+     *  uncluttered. As size shrinks, density grows so the screen still
+     *  feels populated. `scale` is centered around 1.0 (unchanged). */
+    setScale(scale) {
+      const s = Math.max(0.1, Math.min(3.0, scale));
+      // Inverse coupling: density ~ 1/s²  (preserve coverage of screen area)
+      this.update({
+        size: s,
+        density: 1.0 / (s * s),
+      });
+    }
+
+    /** Tear down everything and remove the canvas. */
+    destroy() {
+      this.stop();
+      window.removeEventListener('resize', this._onResize);
+      if (this._effectInstance) this._effectInstance.dispose();
+      this.renderer.dispose();
+      if (this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
+      if (this.bg.parentNode)     this.bg.parentNode.removeChild(this.bg);
+      if (this.haze.parentNode)   this.haze.parentNode.removeChild(this.haze);
+      if (this.blurOverlay && this.blurOverlay.parentNode) this.blurOverlay.parentNode.removeChild(this.blurOverlay);
+    }
+  }
+
+  // Expose
+  global.GlitterFX = GlitterFX;
+
+})(typeof window !== 'undefined' ? window : this);
