@@ -1,0 +1,14 @@
+{
+  "name": "glitterfx-v2-workspace",
+  "private": true,
+  "version": "0.0.0-dev",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "verify:governance": "node ./scripts/verify-governance.mjs",
+    "verify:governance:self-test": "node ./scripts/verify-governance.mjs --self-test"
+  }
+}

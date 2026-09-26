@@ -1,0 +1,24 @@
+name: V2 Governance
+
+on:
+  push:
+    branches: [v2-engine, 'v2/**']
+  pull_request:
+    branches: [v2-engine]
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Governance self-test
+        run: node v2/scripts/verify-governance.mjs --self-test
+      - name: Protect V1
+        run: node v2/scripts/verify-governance.mjs
