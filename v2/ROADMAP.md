@@ -25,7 +25,7 @@ Deliverable: `AGENTS.md`, `CLAUDE.md`, `BOT_PROTOCOL.md`, `VERIFICATION.md`.
 Verify: both bot entry files point to the same canonical documents.
 Exit: one-objective-at-a-time workflow is documented.
 
-### P0.O4 — Bootstrap V2 workspace and governance CI — TODO
+### P0.O4 — Bootstrap V2 workspace and governance CI — PASS
 Goal: create isolated project folders and an automated V1-diff guard.
 Deliverable: V2 workspace skeleton, package metadata, governance script, CI workflow.
 Verify: governance script passes on `v2-engine`; deliberate protected-file change makes it fail in a test branch/local simulation.
