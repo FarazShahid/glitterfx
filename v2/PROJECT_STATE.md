@@ -6,7 +6,7 @@
 ## Current objective
 **Publish the 2.0.0-alpha.0 prerelease** (owner action: needs npm access to the `@glitterfx` scope; steps in `RELEASE.md`), then collect real-device feedback.
 
-Candidates after the alpha, in priority order: real-hardware performance pass (all numbers so far are from a software renderer), custom palettes (`registerPalette`, hex arrays, weights) for V1 parity, public `registerEffect` for third-party effects, WebGPU only if a stateful effect is requested (see Step 8).
+After the alpha: run a real-hardware performance pass, then follow `POST_ALPHA_EFFECTS.md`. First shipping targets are Glitter Shimmer, cheap catalog additions, pointer interaction, Shape Targets, shaped particles, custom palettes, and a Web Component. WebGPU remains deferred until a stateful effect actually needs it.
 
 ## Already completed
 - V2 isolated on its own branch/workspace; V1 protection CI passing
