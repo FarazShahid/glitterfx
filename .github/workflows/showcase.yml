@@ -1,0 +1,96 @@
+name: GlitterFX Showcase
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'v2/showcase/**'
+      - '.github/workflows/showcase.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'v2/showcase/**'
+      - '.github/workflows/showcase.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  showcase-checks:
+    name: showcase-checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2/showcase
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install showcase dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck showcase
+        run: npm run typecheck
+
+      - name: Build showcase
+        run: npm run build
+
+  deploy-showcase:
+    name: deploy-showcase
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: showcase-checks
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Confirm Vercel credential
+        shell: bash
+        run: |
+          test -n "${VERCEL_TOKEN:-}" || {
+            echo "::error::VERCEL_TOKEN is not configured."
+            exit 1
+          }
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@54.17.2
+
+      - name: Ensure showcase project exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if vercel project inspect glitterfx-showcase --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
+            echo "Project glitterfx-showcase already exists."
+          else
+            vercel project add glitterfx-showcase --token "$VERCEL_TOKEN"
+          fi
+
+      - name: Deploy showcase to production
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="$(vercel deploy v2/showcase --prod --yes --token "$VERCEL_TOKEN" --project glitterfx-showcase)"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Production URL: $URL"
+
+      - name: Verify production homepage
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          vercel curl "/" --deployment "$URL" --yes >/dev/null
+          echo "GlitterFX showcase homepage verification passed."
