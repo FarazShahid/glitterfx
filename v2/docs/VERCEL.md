@@ -37,8 +37,9 @@ The root URL rewrites to v2.html.
 Useful routes:
 
 ~~~text
-/                 main V2 playground
-/v2.html          main V2 playground
+/                 V2 playground (default)
+/v2.html          V2 playground alias
+/v1.html          legacy V1 Effect Lab (on demand)
 /parity.html      Canvas/WebGL parity view
 /fixtures.html    deterministic visual fixture page
 ~~~
@@ -49,10 +50,11 @@ The Vite build has all three pages as explicit entries.
 
 After deployment:
 
-1. Open / and confirm an effect animates.
+1. Open / and confirm the V2 playground loads and an effect animates.
 2. Switch renderer among auto, Canvas and WebGL.
-3. Open /parity.html and compare the two backends.
-4. Open /fixtures.html?effects=glitter-shimmer&renderers=canvas,webgl&t=5&seed=42.
+3. Confirm /v1.html loads only when requested as the legacy V1 Effect Lab.
+4. Open /parity.html and compare the two backends.
+5. Open /fixtures.html?effects=glitter-shimmer&renderers=canvas,webgl&t=5&seed=42.
 5. Verify the browser console has no shader, import or asset errors.
 6. Test a mobile viewport.
 7. Test prefers-reduced-motion.
