@@ -221,6 +221,8 @@ Done when:
 - five total reference effects cover stars, orbital motion, bursts/lifetimes, buoyancy/drag, turbulence/curl flow
 - adding an effect is straightforward and does not require modifying core engine logic
 
+After this proof point, use `EFFECTS_EXPANSION.md` as the prioritized creative/capability backlog. Do not pull those ideas forward before the reference engine is working.
+
 ---
 
 ## Step 6 — Website behavior and developer controls
