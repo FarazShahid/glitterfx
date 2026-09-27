@@ -21,6 +21,7 @@ const QUALITIES: readonly Quality[] = ['eco', 'balanced', 'high'];
 const SLIDERS: readonly NumericKey[] = ['density', 'speed', 'size', 'brightness', 'glow', 'haze', 'opacity'];
 
 const TRANSITIONS: readonly TransitionType[] = ['crossfade', 'morph', 'dissolve'];
+const DEFAULT_EFFECT = effects.find((effect) => effect.id === 'star-field') ?? effects[0];
 
 /** Playground baseline; `Reset to defaults` returns here (keeping the chosen effect and backend). */
 const baseline = () => ({
@@ -43,7 +44,7 @@ const state = {
   transition: 'morph' as TransitionType,
   paused: false,
   options: {
-    effect: effects[0]?.id ?? 'star-field',
+    effect: DEFAULT_EFFECT?.id ?? 'star-field',
     quality: 'balanced' as Quality,
     density: 1,
     speed: 1,
@@ -52,7 +53,7 @@ const state = {
     glow: 0.5,
     haze: 0.4,
     opacity: 1,
-    palette: effects[0]?.defaultPalette ?? 'starlight',
+    palette: DEFAULT_EFFECT?.defaultPalette ?? 'starlight',
     seed: 42,
     params: {} as Record<string, number>,
     interaction: { pointer: 'none', radius: 140, strength: 0.8 } as { pointer: PointerMode; radius: number; strength: number },
@@ -77,7 +78,7 @@ document.querySelector('#app')!.innerHTML = `
   <div class="shell">
     <header class="bar">
       <div class="brand"><span class="mark"></span>GlitterFX <b>V2</b> playground</div>
-      <a class="bar-link" href="./index.html">V1 Effect Lab</a>
+      <a class="bar-link" href="./v1.html">V1 Effect Lab</a>
     </header>
     <main class="stage" id="stage"></main>
     <aside class="panel">
