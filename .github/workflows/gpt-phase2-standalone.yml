@@ -5,7 +5,6 @@ on:
     branches: [gpt-v2-phase2-effects]
     paths:
       - '.github/workflows/gpt-phase2-standalone.yml'
-      - 'v2/**'
 
 jobs:
   build-html:
@@ -20,33 +19,54 @@ jobs:
       - name: Install
         working-directory: v2
         run: npm ci
-      - name: Build playground
-        working-directory: v2
-        run: npm run build -w @glitterfx/playground
-      - name: Inline Phase 2 preview
+      - name: Build one-chunk Phase 2 preview
+        working-directory: v2/apps/playground
+        shell: bash
+        run: |
+          cat > vite.standalone.config.ts <<'EOF'
+          import { fileURLToPath } from 'node:url';
+          import { defaultClientConditions, defineConfig } from 'vite';
+          export default defineConfig({
+            resolve: { conditions: ['@glitterfx/source', ...defaultClientConditions] },
+            build: {
+              target: 'es2022',
+              outDir: 'dist-standalone',
+              emptyOutDir: true,
+              rollupOptions: {
+                input: fileURLToPath(new URL('./phase2.html', import.meta.url)),
+                output: { inlineDynamicImports: true },
+              },
+            },
+          });
+          EOF
+          npx vite build --config vite.standalone.config.ts
+      - name: Inline CSS and JS
         shell: bash
         run: |
           node <<'NODE'
           const fs = require('fs');
           const path = require('path');
-          const root = path.join(process.cwd(), 'v2/apps/playground/dist');
+          const root = path.join(process.cwd(), 'v2/apps/playground/dist-standalone');
           const source = path.join(root, 'phase2.html');
-          if (!fs.existsSync(source)) throw new Error('phase2.html was not produced by Vite');
           let html = fs.readFileSync(source, 'utf8');
 
+          html = html.replace(/<link rel="modulepreload"[^>]*>/g, '');
           html = html.replace(/<link rel="stylesheet" crossorigin href="([^"]+)">/g, (_, href) => {
             const css = fs.readFileSync(path.join(root, href.replace(/^\//, '')), 'utf8');
             return '<style>' + css + '</style>';
           });
-
           html = html.replace(/<script type="module" crossorigin src="([^"]+)"><\/script>/g, (_, src) => {
             const js = fs.readFileSync(path.join(root, src.replace(/^\//, '')), 'utf8');
             return '<script type="module">' + js.replace(/<\/script/gi, '<\\/script') + '<\/script>';
           });
 
+          if (/src="\/assets\//.test(html) || /href="\/assets\//.test(html) || /from "\.\//.test(html)) {
+            throw new Error('Standalone HTML still contains external build references');
+          }
+
           const out = path.join(process.cwd(), 'glitterfx-gpt-phase2-preview.html');
           fs.writeFileSync(out, html);
-          console.log(out, fs.statSync(out).size);
+          console.log('standalone bytes:', fs.statSync(out).size);
           NODE
       - uses: actions/upload-artifact@v4
         with:
