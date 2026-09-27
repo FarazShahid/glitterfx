@@ -20,9 +20,9 @@ Done check:
 
 ---
 
-## Step 1 — Make V2 runnable — NEXT
+## Step 1 — Make V2 runnable — DONE
 
-### 1.1 Workspace + TypeScript
+### 1.1 Workspace + TypeScript — DONE
 Build:
 - real package manifests for `core`, `backend-canvas`, `backend-webgl`, `effects`, and `playground`
 - strict TypeScript
@@ -32,7 +32,7 @@ Done when:
 - clean install works
 - typecheck/build/test commands pass
 
-### 1.2 Minimal public API
+### 1.2 Minimal public API — DONE
 Build the smallest API needed for the vertical slice:
 
 ```ts
@@ -62,7 +62,7 @@ Done when:
 - explicit renderer selection is respected
 - `auto` can choose from registered backends
 
-### 1.3 Playground shell
+### 1.3 Playground shell — DONE
 Build one local playground page with controls for:
 - backend
 - quality
@@ -78,11 +78,11 @@ Done when:
 
 ---
 
-## Step 2 — Build the first complete effect: Star Field
+## Step 2 — Build the first complete effect: Star Field — DONE
 
 This is the architecture proof. Do not build a generic effect DSL first.
 
-### 2.1 Shared Star Field semantics
+### 2.1 Shared Star Field semantics — DONE
 Define only the shared data Star Field actually needs:
 - seeded particles
 - position/depth
@@ -95,7 +95,7 @@ Define only the shared data Star Field actually needs:
 Done when:
 - both backends can consume the same normalized Star Field config
 
-### 2.2 Canvas/CPU Star Field
+### 2.2 Canvas/CPU Star Field — DONE
 Build:
 - typed-array particle state
 - deterministic seeding
@@ -113,7 +113,7 @@ Done when:
 - pause/resume/update/destroy work
 - playground looks intentionally designed, not like basic dots
 
-### 2.3 WebGL Star Field
+### 2.3 WebGL Star Field — DONE
 Build:
 - Three.js/WebGL backend
 - BufferGeometry
@@ -131,7 +131,7 @@ Done when:
 - visually stronger than V1 star-field
 - CPU profile does not show O(N) JS position updates for shader-driven motion
 
-### 2.4 Compare and tune
+### 2.4 Compare and tune — DONE
 In the playground show Canvas and WebGL using the same seed/config.
 
 Done when:
@@ -142,7 +142,7 @@ Done when:
 
 ---
 
-## Step 3 — Extract the reusable engine primitives
+## Step 3 — Extract the reusable engine primitives — DONE
 
 Only extract abstractions now that two real implementations exist.
 
@@ -162,9 +162,9 @@ Done when:
 
 ---
 
-## Step 4 — Transitions and visual depth
+## Step 4 — Transitions and visual depth — DONE
 
-### 4.1 Transition engine
+### 4.1 Transition engine — DONE
 Build:
 - crossfade
 - morph where particle correspondence is possible
@@ -183,7 +183,7 @@ Done when:
 - transitions can finish, cancel, and restart cleanly
 - no flash caused by dispose/rebuild
 
-### 4.2 Glow / haze / depth
+### 4.2 Glow / haze / depth — DONE
 Canvas:
 - efficient cached glow
 - depth-aware blur illusion
@@ -200,7 +200,7 @@ Done when:
 
 ---
 
-## Step 5 — Prove the engine with four more effects
+## Step 5 — Prove the engine with four more effects — DONE
 
 Implement each in this order, CPU/Canvas first and WebGL second:
 
@@ -225,7 +225,7 @@ After this proof point, use `EFFECTS_EXPANSION.md` as the prioritized creative/c
 
 ---
 
-## Step 6 — Website behavior and developer controls
+## Step 6 — Website behavior and developer controls — DONE
 
 Build:
 - explicit backend choice
@@ -243,7 +243,7 @@ Done when:
 
 ---
 
-## Step 7 — Port the V1 catalog
+## Step 7 — Port the V1 catalog — DONE
 
 Inventory the existing 26 V1 effects and port them one by one.
 
@@ -262,7 +262,7 @@ Done when:
 
 ---
 
-## Step 8 — Optional WebGPU
+## Step 8 — Optional WebGPU — DEFERRED (assessed: no current effect benefits; see PROJECT_STATE)
 
 Only after Canvas + WebGL are mature.
 
@@ -275,7 +275,7 @@ It remains optional and must not increase the baseline requirements of GlitterFX
 
 ---
 
-## Step 9 — Package and release V2
+## Step 9 — Package and release V2 — DONE (publish pending owner npm access)
 
 Build:
 - optimized bundles

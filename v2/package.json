@@ -4,11 +4,34 @@
   "version": "0.0.0-dev",
   "type": "module",
   "workspaces": [
-    "packages/*",
-    "apps/*"
+    "packages/core",
+    "packages/effects",
+    "packages/backend-canvas",
+    "packages/backend-webgl",
+    "packages/react",
+    "packages/browser",
+    "apps/playground"
   ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
+    "dev": "npm run dev -w @glitterfx/playground",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -b tsconfig.build.json && npm run build -w @glitterfx/browser && npm run build -w @glitterfx/playground",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "tsc -b tsconfig.build.json --clean && node -e \"for (const d of ['apps/playground/dist', 'packages/browser/dist']) require('node:fs').rmSync(d, { recursive: true, force: true })\"",
+    "verify": "npm run typecheck && npm run build && npm run test && npm run verify:governance",
     "verify:governance": "node ./scripts/verify-governance.mjs",
-    "verify:governance:self-test": "node ./scripts/verify-governance.mjs --self-test"
+    "verify:governance:self-test": "node ./scripts/verify-governance.mjs --self-test",
+    "pack:check": "node ./scripts/pack-check.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "happy-dom": "^20.14.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
   }
 }

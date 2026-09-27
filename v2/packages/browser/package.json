@@ -1,0 +1,41 @@
+{
+  "name": "@glitterfx/browser",
+  "version": "2.0.0-alpha.0",
+  "description": "Self-contained GlitterFX V2 ESM bundles for <script type=\"module\"> and CDN use.",
+  "keywords": [
+    "glitterfx",
+    "particles",
+    "background",
+    "cdn"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/browser"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "type": "module",
+  "sideEffects": true,
+  "exports": {
+    ".": "./dist/glitterfx.js",
+    "./canvas": "./dist/glitterfx.canvas.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@glitterfx/backend-canvas": "2.0.0-alpha.0",
+    "@glitterfx/backend-webgl": "2.0.0-alpha.0",
+    "@glitterfx/core": "2.0.0-alpha.0",
+    "@glitterfx/effects": "2.0.0-alpha.0",
+    "three": "^0.186.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  }
+}

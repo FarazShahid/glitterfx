@@ -1,0 +1,38 @@
+{
+  "name": "@glitterfx/effects",
+  "version": "2.0.0-alpha.0",
+  "description": "Backend-independent GlitterFX effect definitions: 27 particle effects, palettes, motion primitives.",
+  "keywords": [
+    "glitterfx",
+    "particles",
+    "effects"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/effects"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@glitterfx/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "dependencies": {
+    "@glitterfx/core": "2.0.0-alpha.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  }
+}

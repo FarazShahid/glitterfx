@@ -1,0 +1,36 @@
+{
+  "name": "@glitterfx/core",
+  "version": "2.0.0-alpha.0",
+  "description": "Framework-agnostic core of GlitterFX V2: config, lifecycle, backend selection, transitions.",
+  "keywords": [
+    "glitterfx",
+    "particles",
+    "background",
+    "animation"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/core"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@glitterfx/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  }
+}

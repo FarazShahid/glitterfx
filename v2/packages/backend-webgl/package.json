@@ -1,0 +1,47 @@
+{
+  "name": "@glitterfx/backend-webgl",
+  "version": "2.0.0-alpha.0",
+  "description": "WebGL backend for GlitterFX (Three.js): shader-driven motion, higher particle counts.",
+  "keywords": [
+    "glitterfx",
+    "particles",
+    "webgl",
+    "three"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/backend-webgl"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@glitterfx/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "dependencies": {
+    "@glitterfx/core": "2.0.0-alpha.0",
+    "@glitterfx/effects": "2.0.0-alpha.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "three": "^0.186.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  }
+}

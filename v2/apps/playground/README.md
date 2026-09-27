@@ -6,7 +6,15 @@ For now it uses the existing V1 runtime as the visual baseline so every current 
 
 ## Run
 
-From the repository root, serve the repository over HTTP. For example:
+With the V2 workspace (serves both the Lab and the V2 page from one server):
+
+```bash
+cd v2 && npm ci && npm run dev
+```
+
+Then open `/` for the Effect Lab or `/v2.html` for the V2 page.
+
+Without installing anything, from the repository root, serve the repository over HTTP. For example:
 
 ```bash
 python -m http.server 8080
