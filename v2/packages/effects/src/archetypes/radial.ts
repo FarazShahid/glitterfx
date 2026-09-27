@@ -32,6 +32,12 @@ export interface RadialParams extends ArchetypeBase {
   readonly golden?: boolean;
   /** Vertical scale (tilted disk). Default 1. */
   readonly squash?: number;
+  /** Orbit only: normalized radial band [inner, outer]. Default [0.02, 1]. */
+  readonly orbitBand?: readonly [number, number];
+  /** Rotate the projected/squashed disk in screen space (radians). Default 0. */
+  readonly rotation?: number;
+  /** Orbit only: map palette position from inner to outer radius instead of random color. */
+  readonly colorByRadius?: boolean;
   /** Fade in/out fractions of life. Default [0.05, 0.4]. */
   readonly fade?: readonly [number, number];
   /** Size added over life (1 = doubles). */
@@ -73,6 +79,10 @@ export function createRadialEffect(p: RadialParams): ParticleEffect<RadialFrame>
   const squash = p.squash ?? 1;
   const spin = p.spin ?? 0;
   const twist = p.twist ?? 0;
+  const [orbitMin, orbitMax] = p.orbitBand ?? [0.02, 1];
+  const rotation = p.rotation ?? 0;
+  const cosRotation = Math.cos(rotation);
+  const sinRotation = Math.sin(rotation);
 
   return {
     id: p.id,
@@ -85,8 +95,8 @@ export function createRadialEffect(p: RadialParams): ParticleEffect<RadialFrame>
     generate(s, i, r, dust) {
       const [ra, rr, rl, rs, rc, rp, rb, rd, rq, rf] = r as unknown as number[];
       const a0 = p.golden ? wrap(i * GOLDEN_ANGLE, TAU) : TAU * ra!;
-      // Orbit: linear radius gives area density ~1/r: a bright core fading to a soft rim, no ring.
-      const reach = p.emission === 'orbit' ? 0.02 + 0.98 * rr! : 1 - p.reachJitter * rr!;
+      // Orbit: linear radius gives area density ~1/r. A band can carve a ring / inner hole.
+      const reach = p.emission === 'orbit' ? orbitMin + (orbitMax - orbitMin) * rr! : 1 - p.reachJitter * rr!;
       const dir = rd! < (p.counterShare ?? 0) ? -1 : 1;
       const life = p.life[0] + (p.life[1] - p.life[0]) * rl!;
       const beat = beats[Math.min(beats.length - 1, Math.floor(rb! * beats.length))]!;
@@ -131,11 +141,16 @@ export function createRadialEffect(p: RadialParams): ParticleEffect<RadialFrame>
         angle = a0 + dir * spin * age + twist * reach * c;
         a *= lifeFade(x, fadeIn, fadeOut);
       }
-      out.x = f.cx + Math.cos(angle) * rr * f.scale;
-      out.y = f.cy + Math.sin(angle) * rr * f.scale * squash;
+      const px = Math.cos(angle) * rr * f.scale;
+      const py = Math.sin(angle) * rr * f.scale * squash;
+      out.x = f.cx + px * cosRotation - py * sinRotation;
+      out.y = f.cy + px * sinRotation + py * cosRotation;
       out.alpha = a;
       out.radius = s.shape[o]! * (1 + (p.grow ?? 0) * x);
-      out.color = Math.min(s.palette.colors.length - 1, s.shape[o + 3]! + (p.cool ?? 0) * x);
+      const last = s.palette.colors.length - 1;
+      const orbitT = (reach - orbitMin) / Math.max(1e-6, orbitMax - orbitMin);
+      const baseColor = p.emission === 'orbit' && p.colorByRadius ? Math.min(1, Math.max(0, orbitT)) * last : s.shape[o + 3]!;
+      out.color = Math.min(last, baseColor + (p.cool ?? 0) * x);
       out.flare = s.shape[o + 2]!;
       out.soft = 0;
       return true;
