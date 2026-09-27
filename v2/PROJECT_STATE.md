@@ -1,7 +1,7 @@
 # GlitterFX V2 — Current Work
 
 ## Branch
-`v2-engine`
+`main`
 
 ## Current development objective
 **Step 4 — Shape Targets** (4.1 target data contract first)
@@ -9,8 +9,8 @@
 Build now: renderer-independent `ParticleTarget { points, count, aspect, key? }` in the config path without DOM types in core; then points/text samplers, one `shape-target` effect, reuse of the existing morph.
 
 ## Done: single npm package (owner request)
-- Published artifact is now one package, **`glitterfx`** (`packages/glitterfx`, 2.0.0-alpha.0, `next` tag): entries `glitterfx` (both renderers registered), `glitterfx/canvas` (no Three.js), `glitterfx/react` ('use client'), `glitterfx/webgl` (post-processing hook; the only entry whose types reference three), plus self-contained CDN builds in `dist/cdn/`. Workspace libraries `@glitterfx/*` are private and bundled in; `@glitterfx/browser` was folded into it and removed. `three` is a peer (auto-installed by npm 7+), React an optional peer. Types are bundled into one `.d.ts` per entry with rollup-plugin-dts, using `@typescript/typescript6` because TypeScript 7 has no JS compiler API (the risk noted in Phase 1); typechecking stays on TS7. A finalize step and `pack:check` fail the build if any published JS or `.d.ts` references a private package.
-- Name `glitterfx` is unclaimed on npm (V1 was never published there despite its README). Owner decision pending: publish V1 as 1.x first, or let `npm install glitterfx` install V2. License corrected to the repo's actual LICENSE (Unlicense); earlier manifests said MIT.
+- Published artifact is one package, **`glitterfx`** (`packages/glitterfx`, 2.0.0-alpha.0, `next` tag): `glitterfx` (V2 WebGL + Canvas), `glitterfx/canvas`, `glitterfx/react`, `glitterfx/webgl`, `glitterfx/legacy`, and `glitterfx/v1`. The exact historical V1 browser runtime is also shipped at `dist/legacy/glitterfx.v1.js` for zero-break migration. Workspace libraries `@glitterfx/*` remain private and are bundled into the public package.
+- V2 is the default engine. V1 no longer needs a separate npm release line; legacy consumers can either use the V1-shaped adapter over V2 or the exact historical runtime from the same package. License is the repository's Unlicense.
 - Verified as a user would: packed tarball installed into a clean project (three auto-installed, no private packages), strict TypeScript without @types/three (an invalid option is a type error), Node ESM import and React server rendering, Vite production build running in Chromium on WebGL and Canvas with the React component, Canvas-only bundle contains no Three.js, CDN file works from a plain HTML page.
 
 ## Done: reset to defaults (owner request)
@@ -66,9 +66,9 @@ Already working:
 Publishing `2.0.0-alpha.0` is an owner action described in `RELEASE.md`.
 It does not block continued development.
 
-## Next after Step 1
-1. cheap effects pack
-2. pointer interaction
-3. Shape Targets
-4. shaped particle renderer
-5. custom palettes + Web Component
+## Next
+1. Shape Targets
+2. shaped particle renderer
+3. custom palettes + Web Component
+4. new closed-form effects
+5. micro-interactions
