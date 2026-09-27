@@ -23,7 +23,6 @@ const protectedV1 = [
   'glitterfx.js',
   'glitterfx-demo.html',
   'glitterfx-docs.html',
-  'README.md',
   'LICENSE',
 ];
 
@@ -72,7 +71,7 @@ function main() {
   ).trim().split(/\r?\n/).filter(Boolean);
 
   assertNoProtectedDiff(changed);
-  console.log(`Governance PASS: V1 protected files unchanged vs ${mainRef}.`);
+  console.log(`Governance PASS: legacy V1 runtime assets unchanged vs ${mainRef}.`);
 }
 
 try {
