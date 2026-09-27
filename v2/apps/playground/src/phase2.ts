@@ -120,8 +120,8 @@ function currentEffect(): string {
   return PHASE2[state.index]!;
 }
 
-function defaultPalette(effect: string): string | undefined {
-  return effects.find((x) => x.id === effect)?.defaultPalette;
+function defaultPalette(effect: string): string {
+  return effects.find((x) => x.id === effect)?.defaultPalette ?? 'starlight';
 }
 
 function options(renderer: 'canvas' | 'webgl') {
