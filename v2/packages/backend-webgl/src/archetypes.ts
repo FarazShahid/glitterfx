@@ -62,7 +62,9 @@ ${SIGNATURE} {
 function radial(p: RadialParams): string {
   const curve = { linear: 'x', sqrt: 'sqrt(x)', ease: '1.0 - (1.0 - x) * (1.0 - x)', accel: 'x * x' }[p.curve];
   const [fadeIn, fadeOut] = p.fade ?? [0.05, 0.4];
+  const [orbitMin, orbitMax] = p.orbitBand ?? [0.02, 1];
   const spin = f(p.spin ?? 0);
+  const rotation = f(p.rotation ?? 0);
   const motion =
     p.emission === 'orbit'
       ? `rr = reach * ${f(p.reach)} * (1.0 + 0.04 * sin(phase * TAU + 0.35 * uTime));
@@ -91,9 +93,14 @@ ${SIGNATURE} {
   float x = 0.0;
   float rr, ang;
   ${motion}
-  pos = uResolution * 0.5 + vec2(cos(ang) * rr * scale, sin(ang) * rr * scale * ${f(p.squash ?? 1)});
+  vec2 projected = vec2(cos(ang) * rr * scale, sin(ang) * rr * scale * ${f(p.squash ?? 1)});
+  float cr = cos(${rotation});
+  float sr = sin(${rotation});
+  pos = uResolution * 0.5 + vec2(projected.x * cr - projected.y * sr, projected.x * sr + projected.y * cr);
   radius = aShape.x * (1.0 + ${f(p.grow ?? 0)} * x);
-  colorPos = min(uPaletteSize - 1.0, aShape.w + ${f(p.cool ?? 0)} * x);
+  float orbitT = clamp((reach - ${f(orbitMin)}) / max(0.000001, ${f(orbitMax - orbitMin)}), 0.0, 1.0);
+  float baseColor = ${p.emission === 'orbit' && p.colorByRadius ? 'orbitT * (uPaletteSize - 1.0)' : 'aShape.w'};
+  colorPos = min(uPaletteSize - 1.0, baseColor + ${f(p.cool ?? 0)} * x);
   flare = aShape.z;
   soft = 0.0;
   return true;
