@@ -5,7 +5,7 @@
   "buildCommand": "cd ../.. && npm run build -w @glitterfx/playground",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/", "destination": "/v2.html" }
+    { "source": "/", "destination": "/index.html" }
   ],
   "headers": [
     {
