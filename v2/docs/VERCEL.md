@@ -21,7 +21,7 @@ FarazShahid/glitterfx
 Git branch:
 
 ~~~text
-v2-engine
+main
 ~~~
 
 Root Directory:
@@ -78,8 +78,12 @@ Routes:
 ~~~text
 /v2/<version>/glitterfx.js
 /v2/<version>/glitterfx.canvas.js
+/v2/<version>/glitterfx.legacy.js
+/v2/<version>/glitterfx.v1.js
 /v2/latest/glitterfx.js
 /v2/latest/glitterfx.canvas.js
+/v2/latest/glitterfx.legacy.js
+/v2/latest/glitterfx.v1.js
 /manifest.json
 ~~~
 
@@ -89,11 +93,10 @@ Versioned files receive long immutable cache headers. latest and manifest use sh
 
 For both projects:
 
-- Production branch: v2-engine while V2 is prerelease.
-- Other branches may be enabled as Vercel Preview Deployments.
-- V1 main remains independent.
-
-When V2 is released and merged into the repository's normal release line, production branch policy can change without changing the application build.
+- Production branch: main.
+- main is the single source branch for V1 compatibility and V2.
+- Feature branches and pull requests may use Vercel Preview Deployments.
+- Production deployments should follow green CI and PR review on main.
 
 ## Suggested domains
 
