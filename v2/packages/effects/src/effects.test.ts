@@ -76,6 +76,56 @@ describe.each(Object.keys(particleEffects))('%s', (id) => {
   });
 });
 
+
+const PHASE_2_EFFECTS = [
+  'warp-speed',
+  'bioluminescent-ocean',
+  'pollen-drift',
+  'falling-ash',
+  'dust-motes',
+  'dandelion-seeds',
+  'rising-lanterns',
+  'accretion-disk',
+  'planetary-rings',
+] as const;
+
+describe('phase 2 effect pack', () => {
+  it('registers every Phase 2 effect on the shared Canvas/WebGL catalog', () => {
+    for (const id of PHASE_2_EFFECTS) expect(particleEffects[id], id).toBeDefined();
+  });
+
+  it('uses a hot-inner / cool-outer radial gradient for the accretion disk', () => {
+    const effect = particleEffects['accretion-disk']!;
+    const store = generateParticles(effect, 'canvas', config('accretion-disk'));
+    let inner = 0;
+    let outer = 0;
+    for (let i = 1; i < store.count; i++) {
+      if (store.p[i * 3 + 1]! < store.p[inner * 3 + 1]!) inner = i;
+      if (store.p[i * 3 + 1]! > store.p[outer * 3 + 1]!) outer = i;
+    }
+    expect(store.p[inner * 3 + 1]).toBeGreaterThanOrEqual(0.11);
+    expect(store.p[outer * 3 + 1]).toBeLessThanOrEqual(1);
+
+    const view = { width: 1000, height: 600 };
+    const frame = effect.prepare(view, 2, config('accretion-disk'));
+    const a: ParticleSample = { x: 0, y: 0, radius: 0, alpha: 0, color: 0, flare: 0, soft: 0 };
+    const b: ParticleSample = { ...a };
+    expect(effect.sample(store, inner, frame as never, a)).toBe(true);
+    expect(effect.sample(store, outer, frame as never, b)).toBe(true);
+    expect(a.color).toBeLessThan(b.color);
+  });
+
+  it('keeps planetary-ring particles inside the configured annulus', () => {
+    const effect = particleEffects['planetary-rings']!;
+    const store = generateParticles(effect, 'canvas', config('planetary-rings'));
+    for (let i = 0; i < store.count; i++) {
+      const reach = store.p[i * 3 + 1]!;
+      expect(reach).toBeGreaterThanOrEqual(0.62);
+      expect(reach).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
 describe('behaviors', () => {
   it('closed-form drag and forced motion match numeric integration', () => {
     let x = 0;
