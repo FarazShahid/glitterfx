@@ -1,0 +1,56 @@
+name: GPT Phase 2 Standalone HTML
+
+on:
+  push:
+    branches: [gpt-v2-phase2-effects]
+    paths:
+      - '.github/workflows/gpt-phase2-standalone.yml'
+      - 'v2/**'
+
+jobs:
+  build-html:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+      - name: Install
+        working-directory: v2
+        run: npm ci
+      - name: Build playground
+        working-directory: v2
+        run: npm run build -w @glitterfx/playground
+      - name: Inline Phase 2 preview
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const root = path.join(process.cwd(), 'v2/apps/playground/dist');
+          const source = path.join(root, 'phase2.html');
+          if (!fs.existsSync(source)) throw new Error('phase2.html was not produced by Vite');
+          let html = fs.readFileSync(source, 'utf8');
+
+          html = html.replace(/<link rel="stylesheet" crossorigin href="([^"]+)">/g, (_, href) => {
+            const css = fs.readFileSync(path.join(root, href.replace(/^\//, '')), 'utf8');
+            return '<style>' + css + '</style>';
+          });
+
+          html = html.replace(/<script type="module" crossorigin src="([^"]+)"><\/script>/g, (_, src) => {
+            const js = fs.readFileSync(path.join(root, src.replace(/^\//, '')), 'utf8');
+            return '<script type="module">' + js.replace(/<\/script/gi, '<\\/script') + '<\/script>';
+          });
+
+          const out = path.join(process.cwd(), 'glitterfx-gpt-phase2-preview.html');
+          fs.writeFileSync(out, html);
+          console.log(out, fs.statSync(out).size);
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glitterfx-gpt-phase2-standalone
+          path: glitterfx-gpt-phase2-preview.html
+          if-no-files-found: error
+          retention-days: 14
