@@ -1,0 +1,44 @@
+{
+  "name": "@glitterfx/react",
+  "version": "2.0.0-alpha.0",
+  "private": true,
+  "description": "React component for GlitterFX backgrounds.",
+  "keywords": [
+    "glitterfx",
+    "particles",
+    "react"
+  ],
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/react"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@glitterfx/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "dependencies": {
+    "@glitterfx/core": "2.0.0-alpha.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

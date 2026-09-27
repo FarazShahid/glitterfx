@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GlitterFX V2: browser bundle example</title>
+  <style>
+    body { margin: 0; background: #05060a; color: #e8eaf0; font: 16px/1.5 system-ui, sans-serif; }
+    .hero { min-height: 70vh; display: grid; place-items: center; text-align: center; padding: 2rem; }
+    .hero h1 { font-size: clamp(2rem, 6vw, 4rem); margin: 0; }
+    nav { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; padding: 1rem; }
+    button { background: #1b1e27; color: inherit; border: 1px solid #333846; border-radius: 6px; padding: .4rem .8rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <section class="hero" id="hero">
+    <div>
+      <h1>Content stays on top</h1>
+      <p id="info"></p>
+    </div>
+  </section>
+  <nav id="nav"></nav>
+
+  <!--
+    From the CDN: https://cdn.jsdelivr.net/npm/glitterfx@next/dist/cdn/glitterfx.js
+    (or dist/cdn/glitterfx.canvas.js for the Canvas-only build without Three.js).
+    Add ?canvas to this page's URL to force the Canvas backend.
+  -->
+  <script type="module">
+    import { GlitterFX, effects } from '../packages/glitterfx/dist/cdn/glitterfx.js';
+
+    const forceCanvas = new URLSearchParams(location.search).has('canvas');
+    const fx = new GlitterFX(document.getElementById('hero'), {
+      effect: 'aurora-veil',
+      renderer: forceCanvas ? 'canvas' : ['webgl', 'canvas'],
+      haze: 0.5,
+    });
+    document.getElementById('info').textContent = `Renderer: ${fx.renderer}`;
+
+    for (const id of ['aurora-veil', 'galaxy', 'meteor-shower', 'heartbeat-pulse', 'lava-eruption']) {
+      const button = document.createElement('button');
+      button.textContent = id;
+      button.onclick = () => {
+        const palette = effects.find((e) => e.id === id)?.defaultPalette;
+        fx.transitionTo({ effect: id, palette }, { type: 'morph', duration: 1400 });
+      };
+      document.getElementById('nav').append(button);
+    }
+    window.fx = fx;
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+{
+  "name": "@glitterfx/backend-canvas",
+  "version": "2.0.0-alpha.0",
+  "private": true,
+  "description": "Canvas 2D backend for GlitterFX: no dependencies, broad compatibility.",
+  "keywords": [
+    "glitterfx",
+    "particles",
+    "canvas"
+  ],
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/backend-canvas"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@glitterfx/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "dependencies": {
+    "@glitterfx/core": "2.0.0-alpha.0",
+    "@glitterfx/effects": "2.0.0-alpha.0"
+  }
+}

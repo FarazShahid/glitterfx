@@ -1,0 +1,18 @@
+{
+  "name": "@glitterfx/playground",
+  "version": "0.0.0-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@glitterfx/backend-canvas": "2.0.0-alpha.0",
+    "@glitterfx/backend-webgl": "2.0.0-alpha.0",
+    "@glitterfx/core": "2.0.0-alpha.0",
+    "@glitterfx/effects": "2.0.0-alpha.0",
+    "three": "^0.186.1"
+  }
+}

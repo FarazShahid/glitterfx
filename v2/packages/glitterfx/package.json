@@ -1,0 +1,93 @@
+{
+  "name": "glitterfx",
+  "version": "2.0.0-alpha.0",
+  "description": "Particle backgrounds for websites: V2 Canvas/WebGL engine, 37 effects, transitions, interaction, React, plus V1 compatibility in one package.",
+  "keywords": [
+    "particles",
+    "background",
+    "webgl",
+    "canvas",
+    "three",
+    "animation",
+    "glitter",
+    "hero",
+    "react"
+  ],
+  "license": "Unlicense",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FarazShahid/glitterfx.git",
+    "directory": "v2/packages/glitterfx"
+  },
+  "homepage": "https://github.com/FarazShahid/glitterfx/tree/main/v2#readme",
+  "bugs": "https://github.com/FarazShahid/glitterfx/issues",
+  "type": "module",
+  "sideEffects": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./canvas": {
+      "types": "./dist/canvas.d.ts",
+      "import": "./dist/canvas.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./webgl": {
+      "types": "./dist/webgl.d.ts",
+      "import": "./dist/webgl.js"
+    },
+    "./package.json": "./package.json",
+    "./legacy": {
+      "types": "./dist/legacy.d.ts",
+      "import": "./dist/legacy.js"
+    },
+    "./v1": {
+      "types": "./dist/legacy.d.ts",
+      "import": "./dist/legacy.js"
+    },
+    "./v1-runtime.js": "./dist/legacy/glitterfx.v1.js"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "jsdelivr": "./dist/cdn/glitterfx.js",
+  "unpkg": "./dist/cdn/glitterfx.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "vite build && vite build -c vite.cdn.config.ts && tsc -p tsconfig.json && rollup -c rollup.dts.config.mjs && node ./scripts/finalize.mjs"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "three": ">=0.180.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@glitterfx/backend-canvas": "2.0.0-alpha.0",
+    "@glitterfx/backend-webgl": "2.0.0-alpha.0",
+    "@glitterfx/core": "2.0.0-alpha.0",
+    "@glitterfx/effects": "2.0.0-alpha.0",
+    "@glitterfx/react": "2.0.0-alpha.0",
+    "@typescript/typescript6": "^6.0.2",
+    "rollup": "^4.63.5",
+    "rollup-plugin-dts": "^6.5.1"
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  }
+}
