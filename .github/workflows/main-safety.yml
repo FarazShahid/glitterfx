@@ -1,0 +1,72 @@
+name: Main Safety
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  main-safety:
+    name: main-safety
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify protected V1 files remain present
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in LICENSE README.md glitterfx.js glitterfx-demo.html glitterfx-docs.html; do
+            test -f "$file" || {
+              echo "::error file=$file::Protected V1 file is missing."
+              exit 1
+            }
+          done
+
+      - name: Reject executable and installer artifacts
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" > /tmp/changed-files.txt
+          echo "Changed files:"
+          cat /tmp/changed-files.txt
+
+          failed=0
+
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+
+            case "$path" in
+              *.sh|*.bash|*.zsh|*.fish|*.ps1|*.bat|*.cmd|*.com|*.exe|*.msi|*.dll|*.so|*.dylib|*.bin|*.jar|*.apk|*.dmg|*.pkg|*.deb|*.rpm)
+                echo "::error file=$path::Executable or script artifact is not permitted on main."
+                failed=1
+                ;;
+              Dockerfile|docker-compose.yml|docker-compose.yaml|Makefile|package.json|package-lock.json|npm-shrinkwrap.json|pnpm-lock.yaml|yarn.lock|.npmrc|.yarnrc|.pypirc)
+                echo "::error file=$path::Installer/build lifecycle file requires a deliberate policy change before it can enter main."
+                failed=1
+                ;;
+              .github/actions/*)
+                echo "::error file=$path::Repository-local GitHub Action code is not permitted on main."
+                failed=1
+                ;;
+            esac
+          done < /tmp/changed-files.txt
+
+          summary="$(git diff --summary "$BASE_SHA" "$HEAD_SHA")"
+          printf '%s\n' "$summary"
+
+          if printf '%s\n' "$summary" | grep -Eq 'create mode 100755|mode change .*100755|create mode 120000'; then
+            echo "::error::Executable file modes and symlinks are not permitted on main."
+            failed=1
+          fi
+
+          exit "$failed"
