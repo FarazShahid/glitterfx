@@ -33,7 +33,10 @@ export default defineConfig({
     target: 'es2022',
     rollupOptions: {
       // The Effect Lab is zero-build static; only the V2 page is bundled.
-      input: { v2: fileURLToPath(new URL('./v2.html', import.meta.url)) },
+      input: {
+        v2: fileURLToPath(new URL('./v2.html', import.meta.url)),
+        phase2: fileURLToPath(new URL('./phase2.html', import.meta.url)),
+      },
     },
   },
 });
