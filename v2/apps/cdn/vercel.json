@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd ../.. && npm ci",
+  "buildCommand": "cd ../.. && npm run build:cdn",
+  "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/v2/latest/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=300" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    },
+    {
+      "source": "/v2/2.0.0-alpha.0/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    },
+    {
+      "source": "/manifest.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=60, s-maxage=300" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    }
+  ]
+}

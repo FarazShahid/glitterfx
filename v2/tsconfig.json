@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "customConditions": ["@glitterfx/source"],
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "packages/*/src",
+    "apps/*/src",
+    "tests",
+    "vitest.config.ts",
+    "apps/*/vite.config.ts"
+  ]
+}

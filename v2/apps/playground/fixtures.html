@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>GlitterFX V2 fixtures</title>
+  <style>
+    body { margin: 0; background: #05060a; color: #9298a8; font: 12px system-ui; }
+    .grid { display: grid; grid-template-columns: repeat(var(--cols, 2), 1fr); gap: 2px; }
+    .cell { position: relative; aspect-ratio: 16 / 9; background: #05060a; }
+    .cell span { position: absolute; left: 8px; top: 6px; }
+  </style>
+</head>
+<body>
+  <!-- Deterministic render fixture: ?effects=a,b&renderers=canvas,webgl&t=5&seed=42 -->
+  <div class="grid" id="grid"></div>
+  <script type="module" src="./src/fixtures.ts"></script>
+</body>
+</html>
