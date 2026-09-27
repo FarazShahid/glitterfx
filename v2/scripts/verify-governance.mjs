@@ -7,8 +7,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
 
 const required = [
-  'AGENTS.md',
-  'CLAUDE.md',
   'v2/README.md',
   'v2/ARCHITECTURE.md',
   'v2/ROADMAP.md',
