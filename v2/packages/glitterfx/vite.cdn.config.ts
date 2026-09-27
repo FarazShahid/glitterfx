@@ -1,6 +1,6 @@
 import { defaultClientConditions, defineConfig } from 'vite';
 
-/** CDN build: self-contained, minified ESM for <script type="module"> (Three.js bundled in the full file). */
+/** Self-contained minified ESM browser builds. Three.js is bundled into the full and legacy adapters. */
 export default defineConfig({
   resolve: { conditions: ['@glitterfx/source', ...defaultClientConditions] },
   build: {
@@ -9,7 +9,11 @@ export default defineConfig({
     target: 'es2022',
     minify: true,
     lib: {
-      entry: { glitterfx: 'src/cdn.ts', 'glitterfx.canvas': 'src/cdn-canvas.ts' },
+      entry: {
+        glitterfx: 'src/cdn.ts',
+        'glitterfx.canvas': 'src/cdn-canvas.ts',
+        'glitterfx.legacy': 'src/legacy.ts',
+      },
       formats: ['es'],
       fileName: (_format, name) => `${name}.js`,
     },

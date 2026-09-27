@@ -13,7 +13,13 @@ export default defineConfig({
     minify: false,
     sourcemap: true,
     lib: {
-      entry: { index: 'src/index.ts', canvas: 'src/canvas.ts', react: 'src/react.ts', webgl: 'src/webgl.ts' },
+      entry: {
+        index: 'src/index.ts',
+        canvas: 'src/canvas.ts',
+        react: 'src/react.ts',
+        webgl: 'src/webgl.ts',
+        legacy: 'src/legacy.ts',
+      },
       formats: ['es'],
       fileName: (_format, name) => `${name}.js`,
     },
@@ -21,7 +27,6 @@ export default defineConfig({
       external: (id) => id === 'three' || id.startsWith('three/') || id === 'react' || id.startsWith('react/') || id.startsWith('react-dom'),
       output: {
         chunkFileNames: 'chunks/[name]-[hash].js',
-        // Next.js App Router: the React entry is a client component.
         banner: (chunk) => (chunk.isEntry && chunk.name === 'react' ? "'use client';" : ''),
       },
     },

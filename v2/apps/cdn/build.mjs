@@ -6,9 +6,13 @@ const here = import.meta.dirname;
 const v2 = resolve(here, '../..');
 const pkgRoot = resolve(v2, 'packages/glitterfx');
 const pkg = JSON.parse(readFileSync(resolve(pkgRoot, 'package.json'), 'utf8'));
-const source = resolve(pkgRoot, 'dist/cdn');
 const out = resolve(here, 'dist');
-const names = ['glitterfx.js', 'glitterfx.canvas.js'];
+const bundles = [
+  { name: 'glitterfx.js', input: resolve(pkgRoot, 'dist/cdn/glitterfx.js') },
+  { name: 'glitterfx.canvas.js', input: resolve(pkgRoot, 'dist/cdn/glitterfx.canvas.js') },
+  { name: 'glitterfx.legacy.js', input: resolve(pkgRoot, 'dist/cdn/glitterfx.legacy.js') },
+  { name: 'glitterfx.v1.js', input: resolve(pkgRoot, 'dist/legacy/glitterfx.v1.js') },
+];
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -19,8 +23,7 @@ mkdirSync(versionDir, { recursive: true });
 mkdirSync(latestDir, { recursive: true });
 
 const files = {};
-for (const name of names) {
-  const input = resolve(source, name);
+for (const { name, input } of bundles) {
   copyFileSync(input, resolve(versionDir, name));
   copyFileSync(input, resolve(latestDir, name));
   const bytes = statSync(input).size;

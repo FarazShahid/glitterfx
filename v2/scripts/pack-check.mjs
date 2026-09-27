@@ -1,6 +1,4 @@
-// Pre-publish check for the one published package, `glitterfx` (after `npm run build`): it packs, carries
-// every entry point with bundled types, ships no source maps of private paths into types, no tests,
-// and does not depend on the private @glitterfx/* workspace libraries.
+// Pre-publish check for the one public package, glitterfx.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,7 +16,19 @@ if (manifest.version !== coreVersion) fail.push(`version ${manifest.version} != 
 for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
   for (const dep of Object.keys(manifest[section] ?? {})) if (dep.startsWith('@glitterfx/')) fail.push(`${section} lists private ${dep}`);
 }
-for (const f of ['dist/index.js', 'dist/index.d.ts', 'dist/canvas.js', 'dist/canvas.d.ts', 'dist/react.js', 'dist/react.d.ts', 'dist/webgl.js', 'dist/webgl.d.ts', 'dist/cdn/glitterfx.js', 'dist/cdn/glitterfx.canvas.js', 'README.md', 'LICENSE']) {
+for (const f of [
+  'dist/index.js', 'dist/index.d.ts',
+  'dist/canvas.js', 'dist/canvas.d.ts',
+  'dist/react.js', 'dist/react.d.ts',
+  'dist/webgl.js', 'dist/webgl.d.ts',
+  'dist/legacy.js', 'dist/legacy.d.ts',
+  'dist/cdn/glitterfx.js',
+  'dist/cdn/glitterfx.canvas.js',
+  'dist/cdn/glitterfx.legacy.js',
+  'dist/legacy/glitterfx.v1.js',
+  'README.md',
+  'LICENSE',
+]) {
   if (!files.has(f)) fail.push(`missing ${f} (run npm run build)`);
 }
 for (const f of files) if (/\.test\.|\/src\//.test(f)) fail.push(`ships ${f}`);
@@ -32,4 +42,4 @@ if (fail.length) {
   for (const f of fail) console.error(`  FAIL ${f}`);
   process.exit(1);
 }
-console.log('Pack check PASS: glitterfx is ready to publish.');
+console.log('Pack check PASS: unified glitterfx package is ready to publish.');

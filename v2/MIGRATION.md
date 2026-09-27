@@ -1,62 +1,95 @@
-# Migrating from GlitterFX V1 to V2
+# V1 to unified GlitterFX package
 
-V1 (`cdn.jsdelivr.net/gh/FarazShahid/glitterfx`, served from GitHub) keeps working unchanged. V2 is the npm package `glitterfx` (`npm install glitterfx@next`); migrate when convenient.
+GlitterFX now has one package and one release train.
 
-## What changes
+## Package layout
 
-| | V1 | V2 |
-|---|---|---|
-| Install | `three` global + `glitterfx` script | `npm install glitterfx@next` (ES modules), or the CDN build |
-| Renderer | WebGL only (Three.js r128 on `window`) | Canvas or WebGL (`three` >= 0.180 as an import), chosen per instance |
-| Construct | `new GlitterFX(el, config)` | same (importing `glitterfx` registers the renderers) |
-| Live changes | `update(patch)`, `setEffect(name)` | `update(patch)`, `transitionTo(effect, { type })` |
-| Pause | `start()` / `stop()` | same; also automatic when hidden, offscreen or reduced motion |
-| Background | `background` config key | plain CSS on the container or page |
-
-## Effects
-
-All 26 V1 effects plus `bending-chaos` exist in V2 under the same ids. Two were renamed and the old ids still work:
-
-| V1 | V2 |
+| Import / asset | Meaning |
 |---|---|
-| `galaxy-spiral` | `galaxy` |
-| `ember-drift` | `ember-storm` |
+| `glitterfx` | V2 default engine: Canvas + WebGL |
+| `glitterfx/canvas` | V2 Canvas-only |
+| `glitterfx/react` | V2 React component |
+| `glitterfx/webgl` | advanced V2 WebGL hooks |
+| `glitterfx/legacy` | V1-shaped API backed by V2 |
+| `glitterfx/v1` | alias of the V1-shaped adapter |
+| `dist/legacy/glitterfx.v1.js` | exact historical V1 classic browser runtime |
 
-V1 palettes are available by the same names, with three exceptions: V1 `aurora` colors are `borealis` in V2 (V2 `aurora` is a softer variant), V1 `supernova` is closest to V2 `nova`, and `starlight` is a V2 variant with the same character. V2 effects are new implementations: motion character and palettes follow V1, exact frames do not.
+The old root `glitterfx.js` remains in the repository during the migration window, but npm/CDN releases come from the single `glitterfx` package.
 
-## Config keys
+## Recommended migration path
 
-| V1 key | V2 |
-|---|---|
-| `effect`, `palette`, `size`, `density`, `brightness`, `speed`, `haze` | same names; ranges in the README |
-| `hazeColor` | removed: haze is tinted by the palette |
-| `blur`, `blurMode` | removed: V2 uses `glow` and per-effect depth softness |
-| `background` | removed: use CSS |
-| `weights`, custom hex palettes | not yet in V2 |
+### Stage 1: zero behavior change
 
-| V1 method | V2 |
-|---|---|
-| `setEffect(name)` | `update({ effect })` or `transitionTo(name)` |
-| `setScale(scale)` | `update({ size: scale, density: 1 / scale ** 2 })` |
-| `loadConfig(url)` | `update(await (await fetch(url)).json())` |
-| `GlitterFX.listEffects()` | `effects` export from `glitterfx` |
-| `GlitterFX.listPalettes()` | `Object.keys(palettes)` |
-| `GlitterFX.registerEffect`, `registerPalette` | not in the prerelease |
+Keep the exact V1 runtime, but load it from the new package release:
 
-## Example
-
-```html
-<!-- V1 -->
+~~~html
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/FarazShahid/glitterfx"></script>
-<script>new GlitterFX(document.getElementById('hero'), { effect: 'aurora-veil', background: '#05060a' });</script>
-```
+<script src="https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/legacy/glitterfx.v1.js"></script>
+~~~
 
-```html
-<!-- V2 -->
-<style>#hero { background: #05060a; }</style>
-<script type="module">
-  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@next/dist/cdn/glitterfx.js';
-  new GlitterFX(document.getElementById('hero'), { effect: 'aurora-veil', renderer: ['webgl', 'canvas'] });
-</script>
-```
+Existing `new GlitterFX(...)`, registerPalette and registerEffect code continues to use the historical engine.
+
+### Stage 2: move to the V2 engine with V1-shaped code
+
+~~~js
+import { GlitterFX } from 'glitterfx/legacy';
+~~~
+
+This preserves the common constructor and methods while the actual renderer is V2.
+
+Supported compatibility methods:
+
+- update
+- setEffect
+- setScale
+- loadConfig
+- start
+- stop
+- resize
+- destroy
+- listEffects
+- getDefaults (translated V2 defaults)
+- listPalettes
+- getPalette
+- listBlurModes
+
+Compatibility limitations:
+
+- V1 blur/blurMode are approximated using V2 glow.
+- hazeColor is ignored because V2 haze is palette-tinted.
+- palette arrays / custom weights are not yet mapped into V2.
+- registerPalette and registerEffect require the exact V1 runtime until the equivalent extension API lands in V2.
+
+### Stage 3: native V2
+
+~~~js
+import { GlitterFX } from 'glitterfx';
+
+const fx = new GlitterFX(hero, {
+  effect: 'galaxy',
+  renderer: ['webgl', 'canvas'],
+  glow: 0.7,
+  interaction: { pointer: 'repel', radius: 160, strength: 0.8 },
+});
+~~~
+
+Replace:
+
+| V1 | Native V2 |
+|---|---|
+| galaxy-spiral | galaxy (old alias still accepted) |
+| ember-drift | ember-storm (old alias still accepted) |
+| setEffect(name) | update({ effect: name }) or transitionTo(name) |
+| setScale(scale) | update({ size: scale, density: 1 / scale ** 2 }) |
+| loadConfig(url) | update(await (await fetch(url)).json()) |
+| background | CSS |
+| blur / blurMode | glow + effect softness |
+| hazeColor | palette-tinted haze |
+
+## Why keep the exact V1 file temporarily?
+
+The V2 engine already covers the complete V1 effect catalog and adds Canvas fallback, transitions, interaction and motion. The remaining compatibility gap is not the core effects; it is V1's runtime extension surface and exact post-processing behavior.
+
+Shipping the historical file inside the same package lets existing sites move to one package/release source immediately without forcing those extension APIs into V2 prematurely.
+
+Once V2 has native custom palettes/effect registration and the remaining V1 consumers are migrated, the exact V1 asset can be deprecated and eventually removed in a major release.

@@ -1,6 +1,6 @@
 # GlitterFX V2
 
-Particle backgrounds for websites with two first-class renderers: **Canvas 2D** (no dependencies, runs everywhere) and **WebGL** (Three.js, shader-driven motion, about 7 to 12x the particles at the same quality). Both render the same 37 effects from the same configuration. V2 is a prerelease (`2.0.0-alpha`) and ships as separate `@glitterfx/*` packages; the V1 `glitterfx` package and CDN script are unchanged.
+Particle backgrounds for websites with two first-class renderers: **Canvas 2D** (no dependencies, runs everywhere) and **WebGL** (Three.js, shader-driven motion, about 7 to 12x the particles at the same quality). Both render the same 37 effects from the same configuration. V2 is the default engine of the single public `glitterfx` package. The package also ships `glitterfx/legacy` (a V1-shaped adapter over V2) and the exact historical V1 browser runtime under `dist/legacy/` for migration.
 
 
 

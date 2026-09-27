@@ -1,7 +1,7 @@
 {
   "name": "glitterfx",
   "version": "2.0.0-alpha.0",
-  "description": "Particle backgrounds for websites: 37 effects on Canvas and WebGL, one config, transitions, pointer and motion interaction.",
+  "description": "Particle backgrounds for websites: V2 Canvas/WebGL engine, 37 effects, transitions, interaction, React, plus V1 compatibility in one package.",
   "keywords": [
     "particles",
     "background",
@@ -40,7 +40,16 @@
       "types": "./dist/webgl.d.ts",
       "import": "./dist/webgl.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./legacy": {
+      "types": "./dist/legacy.d.ts",
+      "import": "./dist/legacy.js"
+    },
+    "./v1": {
+      "types": "./dist/legacy.d.ts",
+      "import": "./dist/legacy.js"
+    },
+    "./v1-runtime.js": "./dist/legacy/glitterfx.v1.js"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",

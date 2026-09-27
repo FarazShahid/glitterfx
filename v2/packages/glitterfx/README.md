@@ -31,6 +31,8 @@ The effect renders behind the element's content; style the element's background 
 | `glitterfx/canvas` | Canvas | Never loads Three.js: smallest bundle |
 | `glitterfx/react` | WebGL + Canvas | `<GlitterFXBackground>`, marked `'use client'` |
 | `glitterfx/webgl` | - | `createWebGLBackend({ postprocess })` for post effects such as bloom; types need `@types/three` |
+| `glitterfx/legacy` | WebGL + Canvas | V1-shaped API translated onto the V2 engine |
+| `glitterfx/v1` | WebGL + Canvas | Alias of `glitterfx/legacy` |
 
 ### React
 
@@ -96,3 +98,33 @@ glitter-shimmer, star-field, galaxy, supernova, ember-storm, curl-flow, emerald-
 ## License
 
 Unlicense (public domain). Source: https://github.com/FarazShahid/glitterfx
+
+
+## V1 compatibility in the same package
+
+The package has one recommended engine: V2. Existing V1-shaped code can move to the same package before being fully rewritten:
+
+~~~js
+import { GlitterFX } from 'glitterfx/legacy';
+
+const fx = new GlitterFX(document.querySelector('#hero'), {
+  effect: 'galaxy-spiral',
+  background: '#05060a',
+  blur: 2,
+  blurMode: 'lens',
+});
+
+fx.setEffect('ember-drift');
+fx.setScale(1.2);
+~~~
+
+The legacy adapter maps old effect ids and common V1 methods to V2. V1 blur is approximated with V2 glow; hazeColor is not preserved; runtime custom palettes/effects are not yet supported by the V2 engine.
+
+For a zero-break migration, the package also contains the exact original V1 browser runtime:
+
+~~~html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/legacy/glitterfx.v1.js"></script>
+~~~
+
+That file preserves the historical global `window.GlitterFX` implementation, including V1 registerPalette/registerEffect behavior. It is a migration asset, not the recommended API for new code.

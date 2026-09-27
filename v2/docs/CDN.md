@@ -13,6 +13,8 @@ The public package build generates:
 
 - dist/cdn/glitterfx.js — full WebGL + Canvas build, Three.js bundled
 - dist/cdn/glitterfx.canvas.js — Canvas-only build
+- dist/cdn/glitterfx.legacy.js — V1-shaped compatibility API running on V2
+- dist/legacy/glitterfx.v1.js — exact historical V1 classic runtime (requires global Three.js r128)
 
 Build from /v2:
 
@@ -38,8 +40,12 @@ Expected routes for version 2.0.0-alpha.0:
 ~~~text
 /v2/2.0.0-alpha.0/glitterfx.js
 /v2/2.0.0-alpha.0/glitterfx.canvas.js
+/v2/2.0.0-alpha.0/glitterfx.legacy.js
+/v2/2.0.0-alpha.0/glitterfx.v1.js
 /v2/latest/glitterfx.js
 /v2/latest/glitterfx.canvas.js
+/v2/latest/glitterfx.legacy.js
+/v2/latest/glitterfx.v1.js
 /manifest.json
 /
 ~~~
@@ -165,3 +171,23 @@ preview.glitterfx.dev
 ~~~
 
 This lets CDN caching/security policy evolve independently from the preview application.
+
+
+## Legacy CDN choices
+
+V1-shaped API backed by V2:
+
+~~~html
+<script type="module">
+  import { GlitterFX } from 'https://cdn.example.com/v2/latest/glitterfx.legacy.js';
+</script>
+~~~
+
+Exact V1 runtime:
+
+~~~html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.example.com/v2/latest/glitterfx.v1.js"></script>
+~~~
+
+The exact V1 file is the only option that preserves runtime registerPalette/registerEffect and historical V1 blur behavior exactly.
