@@ -1,290 +1,430 @@
-# GlitterFX V2 — Build Path
+# GlitterFX V2 — Development Path
 
-The goal is working software as quickly as possible while keeping V1 safe.
+This is the only implementation roadmap for V2.
 
-Each objective has only three states: `NEXT`, `DOING`, `DONE`.
-Finish the objective, run its checks, update `PROJECT_STATE.md`, move on.
+Rule: build the current objective, verify it works, then move to the next objective. No extra process layer is required.
 
----
-
-## Step 0 — Isolate V2 — DONE
-
-Built:
-- `v2-engine` branch from V1 `main`
-- V2 workspace under `/v2`
-- automatic guard that prevents V2 work from modifying V1 runtime/demo/docs files
-
-Done check:
-- V1 files unchanged
-- governance action passes
+The working V2 baseline already includes Canvas + WebGL, 27 effects, transitions, trails, haze, effect params, React/browser packages, V1 compatibility, and green CI.
 
 ---
 
-## Step 1 — Make V2 runnable — DONE
+# Step 1 — Glitter Shimmer
 
-### 1.1 Workspace + TypeScript — DONE
+Goal: create the flagship effect that visually defines GlitterFX.
+
+## 1.1 Glint pulse primitive — NEXT
 Build:
-- real package manifests for `core`, `backend-canvas`, `backend-webgl`, `effects`, and `playground`
-- strict TypeScript
-- minimal build/test commands
+- CPU `glintPulse()` in shared behaviors
+- matching GLSL implementation
+- deterministic irregular shimmer + rare sharp flare response
 
 Done when:
-- clean install works
-- typecheck/build/test commands pass
+- CPU and GLSL formulas match closely
+- fixed seed/time gives repeatable output
+- existing effects are unchanged
 
-### 1.2 Minimal public API — DONE
-Build the smallest API needed for the vertical slice:
+## 1.2 Glitter Shimmer effect
+Build:
+- new `glitter-shimmer` ParticleEffect
+- dense micro-glitter population
+- sparse brighter flare population
+- layered depth
+- existing glow / softness / palette channels
+- Canvas + WebGL support through current renderers
+
+Done when:
+- Canvas looks premium, not like basic dots
+- WebGL is visibly richer with the same config
+- no new renderer is required
+
+## 1.3 Glitter controls + tuning
+Add useful effect params:
+- flare rate
+- shimmer strength
+- depth
+- optional shimmer-wave strength
+
+Add them to the playground automatically through the existing effect-param UI.
+
+Done when:
+- effect can be tuned from subtle component sparkle to full hero glitter
+- fixed presets look good at eco / balanced / high
+
+---
+
+# Step 2 — Cheap New Effects
+
+Goal: expand the catalog quickly using capabilities V2 already has.
+
+## 2.1 Warp Speed
+Use:
+- radial stream
+- accelerated movement
+- existing trails
+- starlight palette
+- depth/size growth
+
+Only extend the radial archetype if the visual genuinely needs a missing parameter.
+
+## 2.2 Bioluminescent Ocean
+Use:
+- wave archetype
+- strong crest-driven brightness
+- aqua/quantum palette
+- slow lateral flow
+- dark cyan haze
+
+Only add field-to-glow mapping if current crest alpha is not enough.
+
+## 2.3 Ambient Drift Pack
+Add:
+- `pollen-drift`
+- `falling-ash`
+- `dust-motes`
+- `dandelion-seeds`
+- `rising-lanterns`
+
+Use the existing drift archetype. Avoid engine changes unless an effect cannot be represented cleanly.
+
+## 2.4 Accretion Disk + Planetary Rings
+First try the existing radial orbit model.
+
+Add only if required:
+- disk orientation
+- inner/outer radius band
+- radial heat/brightness curve
+
+Done when Step 2 adds the effects without creating another general framework.
+
+---
+
+# Step 3 — Pointer Interaction
+
+Goal: make every existing effect react to the user.
+
+## 3.1 Public interaction config
+Add:
 
 ```ts
-new GlitterFX(element, {
-  effect: 'star-field',
-  renderer: 'canvas' | 'webgl' | 'auto',
-  quality: 'eco' | 'balanced' | 'high',
-  density,
-  speed,
-  size,
-  brightness,
-  glow,
-  palette,
-  seed
+interaction: {
+  pointer: 'none' | 'repel' | 'attract' | 'vortex',
+  radius: 140,
+  strength: 0.8
+}
+```
+
+Normalize it in core.
+
+## 3.2 Pointer runtime state
+Track:
+- pointer x/y in effect/container coordinates
+- pointer velocity
+- active/down state if useful
+
+Keep rendering canvases `pointer-events: none`.
+
+## 3.3 Canvas interaction
+Apply the generic interaction transform after `effect.sample()` and before drawing.
+
+Implement:
+- repel
+- attract
+- vortex
+
+## 3.4 WebGL interaction
+Pass pointer state as shared uniforms.
+
+Apply the same interaction math in the common WebGL particle path so every effect gets it without effect-specific shaders.
+
+## 3.5 Playground controls
+Add pointer mode, radius and strength controls.
+
+Done when:
+- Star Field, Galaxy, Glitter, Dust and Plasma all react without custom per-effect interaction code
+- Canvas and WebGL feel directionally equivalent
+
+---
+
+# Step 4 — Shape Targets
+
+Goal: particles can form text, logos, SVGs and images.
+
+## 4.1 Target data contract
+Add a renderer-independent target type:
+
+```ts
+interface ParticleTarget {
+  points: Float32Array;
+  count: number;
+  aspect: number;
+  key?: string;
+}
+```
+
+Add target data to the config path without forcing DOM/browser types into core.
+
+## 4.2 Points + text samplers
+Build browser helpers:
+- `createPointsTarget()`
+- `createTextTarget()`
+
+Sampling must be deterministic.
+
+## 4.3 Shape Target effect
+Create one `shape-target` effect that maps generated particles to target positions.
+
+Use the existing generic Canvas/WebGL rendering pipeline.
+
+## 4.4 Reuse existing morph
+Use the existing transition system for:
+- Star Field -> text
+- Glitter -> text
+- Galaxy -> logo target
+- target -> normal effect
+
+Do not build a second assembly engine unless the existing morph is visually insufficient.
+
+## 4.5 SVG + image samplers
+Add:
+- `createSvgTarget()`
+- `createImageTarget()`
+
+## 4.6 Playground target lab
+Add:
+- text input
+- SVG paste/upload
+- image target input
+- assemble/morph demo
+
+Done when the same target data works on Canvas and WebGL.
+
+---
+
+# Step 5 — Shaped Particles
+
+Goal: petals, leaves, confetti and snow look like real objects instead of glowing points.
+
+## 5.1 Sprite particle data
+Support:
+- sprite id
+- rotation
+- angular velocity
+- aspect ratio
+
+Keep normal point particles unchanged.
+
+## 5.2 Canvas sprite renderer
+Use cached sprites/images and transformed `drawImage()`.
+
+## 5.3 WebGL sprite renderer
+Add billboard/instanced quads with a compact sprite atlas.
+
+Do not replace the existing THREE.Points renderer.
+
+## 5.4 Upgrade existing effects
+Convert in this order:
+1. confetti-drop
+2. cherry-blossom
+3. falling-leaves
+4. snow-storm
+5. bubble-rise
+
+Done when motion still comes from the existing archetypes and only visual representation changes.
+
+---
+
+# Step 6 — Custom Palettes + Web Component
+
+Goal: make GlitterFX easier to brand and embed.
+
+## 6.1 Custom palette input
+Support:
+- named palette
+- hex color array
+- weighted palette object
+
+Example:
+
+```ts
+palette: {
+  colors: ['#ff4d8d', '#ffd36a', '#ffffff'],
+  weights: [0.5, 0.3, 0.2]
+}
+```
+
+Keep the current internal Palette format.
+
+## 6.2 Palette registry
+Expose:
+
+```ts
+registerPalette('brand', ...)
+```
+
+## 6.3 CSS/brand helper
+Browser helper may resolve CSS variables / computed brand colors.
+
+Do not put CSS parsing in the effects package.
+
+## 6.4 Web Component
+Create a thin wrapper:
+
+```html
+<glitter-fx
+  effect="galaxy"
+  renderer="webgl"
+  quality="high"
+  palette="aurora">
+</glitter-fx>
+```
+
+Observed attributes cover common scalar options.
+Advanced objects remain JavaScript properties.
+
+Done when it uses the same browser/core runtime with no duplicate engine.
+
+---
+
+# Step 7 — New Closed-Form Effects
+
+Goal: add richer effects while preserving V2's stateless GPU-friendly architecture.
+
+## 7.1 Fireworks
+Implement deterministic repeating groups:
+- launch time
+- burst center
+- radial direction
+- gravity
+- drag
+- color cooling
+- lifetime
+
+Do not build a generic event bus first.
+
+## 7.2 Rain + Splash
+Build:
+- rain streak effect
+- deterministic splash population tied to impact phase
+
+No collision engine required.
+
+## 7.3 Comet
+Build:
+- moving bright head
+- deterministic turbulent tail
+- velocity-aligned trail
+
+## 7.4 Parametric path archetype
+Add one reusable path model.
+
+Use it for:
+- DNA helix
+- data streams
+- orbital ribbons
+
+Done when all effects remain closed-form and WebGL keeps O(1) JS work per frame.
+
+---
+
+# Step 8 — Micro-Interactions
+
+Goal: move GlitterFX beyond backgrounds into component effects.
+
+## 8.1 Sparkle helper
+Target API:
+
+```ts
+GlitterFX.sparkle(button, {
+  trigger: 'hover',
+  preset: 'diamond-glint'
 });
 ```
 
-Also support:
-- `start()`
-- `stop()`
-- `resize()`
-- `update()`
-- `destroy()`
+## 8.2 Initial presets
+Build:
+- button hover glitter
+- heading shimmer/glint
+- card-edge sparkle
+- click burst
+- cursor glitter trail
+- success celebration
 
-Done when:
-- a fake backend can run through the lifecycle
-- explicit renderer selection is respected
-- `auto` can choose from registered backends
+## 8.3 Small-effect performance
+Start with Canvas for tiny local effects.
 
-### 1.3 Playground shell — DONE
-Build one local playground page with controls for:
-- backend
-- quality
-- density
-- speed
-- size
-- brightness
-- glow
-- seed
+Only build a shared WebGL page renderer if real measurements show many component instances create too many contexts.
 
-Done when:
-- changing controls updates a running instance without page edits
+Done when component effects are lightweight enough for normal websites.
 
 ---
 
-## Step 2 — Build the first complete effect: Star Field — DONE
+# Step 9 — External Control + Network Effects
 
-This is the architecture proof. Do not build a generic effect DSL first.
-
-### 2.1 Shared Star Field semantics — DONE
-Define only the shared data Star Field actually needs:
-- seeded particles
-- position/depth
-- size
-- color
-- twinkle phase
-- drift/parallax parameters
-- quality particle budgets
-
-Done when:
-- both backends can consume the same normalized Star Field config
-
-### 2.2 Canvas/CPU Star Field — DONE
-Build:
-- typed-array particle state
-- deterministic seeding
-- parallax/drift
-- depth-aware size/alpha
-- cached procedural star core + halo
-- twinkle
-- DPR cap
-
-Target:
-- visually premium at roughly 500–2,000 particles depending on quality
-
-Done when:
-- fixed seed reproduces the same field
-- pause/resume/update/destroy work
-- playground looks intentionally designed, not like basic dots
-
-### 2.3 WebGL Star Field — DONE
-Build:
-- Three.js/WebGL backend
-- BufferGeometry
-- custom GLSL star material
-- procedural core/halo/diffraction
-- shader-driven twinkle and motion where practical
-- depth-aware perspective
-- no unnecessary per-frame CPU position loop
-
-Target:
-- substantially higher particle count/fidelity than Canvas on normal integrated graphics
-
-Done when:
-- same public config works unchanged
-- visually stronger than V1 star-field
-- CPU profile does not show O(N) JS position updates for shader-driven motion
-
-### 2.4 Compare and tune — DONE
-In the playground show Canvas and WebGL using the same seed/config.
-
-Done when:
-- both clearly represent the same effect
-- Canvas is attractive and lightweight
-- WebGL is visibly richer
-- backend can be changed by one config value
-
----
-
-## Step 3 — Extract the reusable engine primitives — DONE
-
-Only extract abstractions now that two real implementations exist.
-
-Build the minimum reusable primitives required by the next effects:
-- particle store
-- seeded random
-- emitters: point / box / sphere / ring
-- forces/behaviors: drift / gravity-buoyancy / drag / wind / vortex / turbulence
-- appearance: glow / twinkle / depth
-- per-backend particle budgets
-
-Do not create a compiler or large DSL unless duplication in real effects proves it is needed.
-
-Done when:
-- Star Field still works unchanged
-- at least one new effect can reuse the primitives without copying its engine
-
----
-
-## Step 4 — Transitions and visual depth — DONE
-
-### 4.1 Transition engine — DONE
-Build:
-- crossfade
-- morph where particle correspondence is possible
-- dissolve/noise
-
-API target:
+## 9.1 Manual time / seek
+Expose deterministic manual control such as:
 
 ```ts
-fx.transitionTo('galaxy', {
-  duration: 1800,
-  type: 'morph'
-});
+fx.seek(seconds)
 ```
 
-Done when:
-- transitions can finish, cancel, and restart cleanly
-- no flash caused by dispose/rebuild
+Use it for scroll-driven animation without coupling core to a scroll library.
 
-### 4.2 Glow / haze / depth — DONE
-Canvas:
-- efficient cached glow
-- depth-aware blur illusion
-- lightweight haze
+## 9.2 Scroll helper
+Map page/section progress to GlitterFX time or transitions.
 
-WebGL:
-- better procedural glow
-- depth-aware point response
-- optional lightweight bloom/post hook, disabled by default
+## 9.3 Constellation/network layer
+Add nearby-particle lines.
 
-Done when:
-- glow is visibly better than V1
-- base effects remain lightweight without post-processing
+Use a spatial grid; never naive O(N²).
 
----
+## 9.4 Audio input
+Accept normalized:
+- level
+- bass
+- mid
+- treble
 
-## Step 5 — Prove the engine with four more effects — DONE
+Keep microphone/WebAudio capture in a browser helper.
 
-Implement each in this order, CPU/Canvas first and WebGL second:
-
-1. `galaxy`
-2. `supernova`
-3. `ember-storm`
-4. `curl-flow`
-
-For each:
-- use the same public config semantics
-- reuse existing primitives
-- add a new primitive only when necessary
-- tune Canvas and WebGL separately for the same art direction
-- test in playground
-- verify cleanup and reasonable performance
-
-Done when:
-- five total reference effects cover stars, orbital motion, bursts/lifetimes, buoyancy/drag, turbulence/curl flow
-- adding an effect is straightforward and does not require modifying core engine logic
-
-After this proof point, use `EFFECTS_EXPANSION.md` as the prioritized creative/capability backlog. Do not pull those ideas forward before the reference engine is working.
+Done when external input is optional and normal effects remain deterministic without it.
 
 ---
 
-## Step 6 — Website behavior and developer controls — DONE
+# Step 10 — WebGPU / Stateful Physics
 
-Build:
-- explicit backend choice
-- `auto` backend selection
-- ordered fallback option
-- capability inspection
-- quality profiles
-- pause while tab is hidden/offscreen
-- `prefers-reduced-motion`
-- context-loss handling for WebGL
-- React wrapper after vanilla API is stable
+Do this only when an effect actually needs persistent simulation state.
 
-Done when:
-- library behaves well as a website background/component effect, not a continuously running game loop
+Candidates:
+- flocking / boids
+- fluid particles
+- N-body / dynamic gravity wells
+- collisions
+- reaction-diffusion
+- very large stateful simulations
 
----
+Objectives:
+1. choose one stateful flagship effect
+2. prove WebGL is actually the limiting factor
+3. implement WebGPU for that use case
+4. keep Canvas/WebGL approximation where practical
 
-## Step 7 — Port the V1 catalog — DONE
-
-Inventory the existing 26 V1 effects and port them one by one.
-
-Per effect:
-1. reproduce/upgrade visual identity in Canvas
-2. build/tune WebGL version
-3. reuse existing primitives
-4. add only genuinely missing primitives
-5. add transition compatibility
-6. test in playground
-
-Do not rewrite V1. V2 gets its own implementations.
-
-Done when:
-- V2 covers the desired V1 catalog with better visuals and the dual-backend model
+Do not migrate existing closed-form effects to WebGPU just for parity.
 
 ---
 
-## Step 8 — Optional WebGPU — DEFERRED (assessed: no current effect benefits; see PROJECT_STATE)
+# Shipping Order
 
-Only after Canvas + WebGL are mature.
+Work in this exact order unless a real implementation dependency proves otherwise:
 
-Build WebGPU only where it provides a real improvement:
-- very high particle counts
-- compute-driven simulation
-- advanced post effects
+1. Glitter Shimmer
+2. Cheap effects pack
+3. Pointer interaction
+4. Shape Targets
+5. Shaped particles
+6. Custom palettes + Web Component
+7. Fireworks / Rain / Comet / Parametric paths
+8. Micro-interactions
+9. Scroll / Constellations / Audio
+10. Stateful physics / WebGPU
 
-It remains optional and must not increase the baseline requirements of GlitterFX.
-
----
-
-## Step 9 — Package and release V2 — DONE (publish pending owner npm access)
-
-Build:
-- optimized bundles
-- ESM package
-- browser build if useful
-- docs/examples
-- V1 -> V2 migration notes
-- prerelease package first
-
-Done when:
-- existing V1 users remain unaffected
-- V2 can be installed independently and used in a real website with either Canvas or WebGL
+The public alpha release is independent of this development sequence and does not block Step 1.
