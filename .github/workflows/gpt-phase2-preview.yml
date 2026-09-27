@@ -25,7 +25,7 @@ jobs:
       - name: Start V2 playground
         shell: bash
         run: |
-          npm run dev -- --host 127.0.0.1 --port 4173 > /tmp/glitterfx-vite.log 2>&1 &
+          (cd apps/playground && npx vite --host 127.0.0.1 --port 4173) > /tmp/glitterfx-vite.log 2>&1 &
           echo $! > /tmp/glitterfx-vite.pid
           for i in {1..40}; do
             if curl -fsS http://127.0.0.1:4173/fixtures.html >/dev/null; then
