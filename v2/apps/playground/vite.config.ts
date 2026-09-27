@@ -7,9 +7,9 @@ const playgroundDir = fileURLToPath(new URL('./', import.meta.url));
 const distDir = fileURLToPath(new URL('./dist/', import.meta.url));
 
 /**
- * The Effect Lab is intentionally a zero-build V1 reference UI. In dev we serve the historical
- * runtime from the repo root. In production we copy the Effect Lab and runtime into dist after the
- * V2/parity/fixture pages have been built, making index.html the deployable site homepage.
+ * V2 is the default playground at index.html. The historical V1 Effect Lab is kept on-demand
+ * at /v1.html. In dev we serve the V1 runtime from the repo root; in production we copy the
+ * V1 lab assets and runtime into dist after the V2/parity/fixture pages have been built.
  */
 function effectLabAssets(): Plugin {
   return {
@@ -27,7 +27,7 @@ function effectLabAssets(): Plugin {
     async closeBundle() {
       await mkdir(distDir, { recursive: true });
       await Promise.all([
-        copyFile(new URL('./index.html', import.meta.url), new URL('./dist/index.html', import.meta.url)),
+        copyFile(new URL('./v1.html', import.meta.url), new URL('./dist/v1.html', import.meta.url)),
         copyFile(new URL('./app.js', import.meta.url), new URL('./dist/app.js', import.meta.url)),
         copyFile(new URL('./styles.css', import.meta.url), new URL('./dist/styles.css', import.meta.url)),
         copyFile(v1Runtime, new URL('./dist/glitterfx.js', import.meta.url)),
@@ -44,8 +44,9 @@ export default defineConfig({
   build: {
     target: 'es2022',
     rollupOptions: {
-      // V2 diagnostic pages are bundled. The full Effect Lab is copied as a static production homepage.
+      // V2 is the default homepage. v2.html remains as an explicit alias; V1 is copied separately.
       input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
         v2: fileURLToPath(new URL('./v2.html', import.meta.url)),
         parity: fileURLToPath(new URL('./parity.html', import.meta.url)),
         fixtures: fileURLToPath(new URL('./fixtures.html', import.meta.url)),
