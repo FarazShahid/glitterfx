@@ -36,7 +36,6 @@ jobs:
           set -euo pipefail
           rm -rf v2
           cp -a /tmp/glitterfx-v2-import/glitterfx/v2 ./v2
-          cp /tmp/glitterfx-v2-import/glitterfx/.github/workflows/v2-governance.yml .github/workflows/v2-governance.yml
       - name: Verify imported V2
         working-directory: v2
         run: |
@@ -50,7 +49,6 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf .v2-import
-          rm -f .github/workflows/v2-import.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
