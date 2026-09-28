@@ -1,6 +1,24 @@
-# Releasing GlitterFX V2 prereleases
+# Releasing GlitterFX prereleases
 
 One public npm package is published: **`glitterfx`**.
+
+## Current published prerelease
+
+As of September 28, 2026:
+
+~~~text
+Package: glitterfx
+Version: 2.0.0-alpha.0
+Prerelease tag: next
+Git tag: v2.0.0-alpha.0
+Showcase: https://glitterfx-showcase.vercel.app
+~~~
+
+Pinned browser bundle:
+
+~~~text
+https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.js
+~~~
 
 V2 is the default engine. The same package also carries:
 
@@ -48,10 +66,10 @@ Prereleases publish under the `next` dist-tag.
 4. Publish the prerelease:
 
    ~~~bash
-   npm publish
+   npm publish --access public --tag next
    ~~~
 
-   `publishConfig` sets `access: public` and `tag: next`.
+   The repository release workflow may perform the same command using the configured npm publishing credential.
 
 5. Tag the repository:
 
@@ -72,21 +90,23 @@ Prereleases publish under the `next` dist-tag.
    - `import { GlitterFXBackground } from 'glitterfx/react'`
    - `import { GlitterFX } from 'glitterfx/legacy'`
 
-7. Smoke test CDN artifacts:
-   - `dist/cdn/glitterfx.js`
-   - `dist/cdn/glitterfx.canvas.js`
-   - `dist/cdn/glitterfx.legacy.js`
-   - `dist/legacy/glitterfx.v1.js`
+7. Verify the exact published CDN URLs:
+   - `https://cdn.jsdelivr.net/npm/glitterfx@<version>/dist/cdn/glitterfx.js`
+   - `https://cdn.jsdelivr.net/npm/glitterfx@<version>/dist/cdn/glitterfx.canvas.js`
+   - `https://cdn.jsdelivr.net/npm/glitterfx@<version>/dist/cdn/glitterfx.legacy.js`
+   - `https://cdn.jsdelivr.net/npm/glitterfx@<version>/dist/legacy/glitterfx.v1.js`
+
+8. If the public showcase changed, confirm `.github/workflows/showcase.yml` deploys `v2/showcase` successfully and https://glitterfx-showcase.vercel.app loads.
 
 ## Dist-tags
 
-During prerelease:
+During prerelease, documentation and CI should use either the exact release version or:
 
 ~~~text
 next -> 2.0.0-alpha.x
 ~~~
 
-Do not point `latest` at V2 until the release is considered stable for normal production installs.
+Do not rely on an unqualified moving install tag for critical production integrations while V2 remains alpha.
 
 The legacy V1 runtime is delivered from the same package and does not require a separate npm 1.x publication.
 
