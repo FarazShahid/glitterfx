@@ -2,3 +2,117 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes pulse-arena-ring {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(0.92);
+    filter: brightness(0.7);
+  }
+  16% {
+    transform: translate(-50%, -50%) scale(1.02);
+    filter: brightness(1.9);
+    opacity: 1;
+  }
+  38% {
+    transform: translate(-50%, -50%) scale(1.08);
+    filter: brightness(1.15);
+  }
+  68% {
+    transform: translate(-50%, -50%) scale(1.02);
+    filter: brightness(0.78);
+  }
+}
+
+@keyframes pulse-arena-core {
+  0%, 72%, 100% {
+    opacity: 0.5;
+    filter: blur(1px) brightness(1);
+    transform: translate(-50%, -50%) scaleX(0.82);
+  }
+  8%, 14% {
+    opacity: 1;
+    filter: blur(1px) brightness(2.4);
+    transform: translate(-50%, -50%) scaleX(1.15);
+  }
+  48% {
+    opacity: 0.78;
+    filter: blur(1px) brightness(1.5);
+    transform: translate(-50%, -50%) scaleX(0.96);
+  }
+}
+
+@keyframes pulse-arena-floor {
+  0%, 100% {
+    opacity: 0.18;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  18% {
+    opacity: 0.52;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  55% {
+    opacity: 0.28;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes pulse-arena-beam {
+  0%, 100% {
+    opacity: 0.32;
+    filter: blur(13px) brightness(1);
+  }
+  10%, 16% {
+    opacity: 0.72;
+    filter: blur(11px) brightness(1.7);
+  }
+  52% {
+    opacity: 0.44;
+    filter: blur(13px) brightness(1.2);
+  }
+}
+
+.pulse-arena-ring {
+  animation: pulse-arena-ring 2.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  will-change: transform, opacity, filter;
+}
+
+.pulse-arena-core {
+  animation: pulse-arena-core 4.6s ease-in-out infinite;
+  box-shadow:
+    0 0 18px rgba(103, 232, 249, 0.95),
+    0 0 42px rgba(168, 85, 247, 0.65);
+}
+
+.pulse-arena-floor-glow {
+  animation: pulse-arena-floor 2.8s ease-in-out infinite;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(103, 232, 249, 0.48) 0%,
+    rgba(168, 85, 247, 0.22) 36%,
+    rgba(59, 130, 246, 0.08) 58%,
+    transparent 76%
+  );
+  filter: blur(12px);
+}
+
+.pulse-arena-beam {
+  animation: pulse-arena-beam 4.6s ease-in-out infinite;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.02) 0%,
+    rgba(103, 232, 249, 0.18) 36%,
+    rgba(168, 85, 247, 0.22) 74%,
+    transparent 100%
+  );
+  clip-path: polygon(39% 0, 61% 0, 100% 100%, 0 100%);
+  mix-blend-mode: screen;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-arena-ring,
+  .pulse-arena-core,
+  .pulse-arena-floor-glow,
+  .pulse-arena-beam {
+    animation: none;
+  }
+}
