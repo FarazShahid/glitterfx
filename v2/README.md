@@ -2,7 +2,9 @@
 
 Particle backgrounds for websites with two first-class renderers: **Canvas 2D** (no dependencies, runs everywhere) and **WebGL** (Three.js, shader-driven motion, about 7 to 12x the particles at the same quality). Both render the same 37 effects from the same configuration. V2 is the default engine of the single public `glitterfx` package. The package also ships `glitterfx/legacy` (a V1-shaped adapter over V2) and the exact historical V1 browser runtime under `dist/legacy/` for migration.
 
-
+**Live showcase:** https://glitterfx-showcase.vercel.app  
+**Published prerelease:** `glitterfx@2.0.0-alpha.0`  
+**Pinned CDN:** `https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.js`
 
 ## Documentation
 
@@ -12,12 +14,12 @@ The detailed V2 documentation lives in [docs/](./docs/README.md):
 - [API reference](./docs/API.md) — options, methods, transitions, runtime properties and exports
 - [Effects catalog](./docs/EFFECTS.md) — all 37 effects, palettes, aliases and effect-specific parameters
 - [Framework integrations](./docs/FRAMEWORKS.md) — React, Next.js, Vite and generic SPA patterns
-- [CDN distribution](./docs/CDN.md) — npm CDN and the self-hosted Vercel CDN surface
-- [Vercel deployment](./docs/VERCEL.md) — preview and CDN project configuration
+- [CDN distribution](./docs/CDN.md) — published npm/jsDelivr browser bundles and optional self-hosted CDN source
+- [Vercel deployment](./docs/VERCEL.md) — live public showcase project and deployment workflow
 - [Performance](./docs/PERFORMANCE.md) — renderer selection, quality levels, mobile guidance and profiling
 - [Troubleshooting](./docs/TROUBLESHOOTING.md) — common integration and rendering issues
 
-The interactive preview app is in [apps/playground](./apps/playground). The deployable CDN surface is in [apps/cdn](./apps/cdn).
+The public showcase is in [showcase](./showcase) and is deployed at https://glitterfx-showcase.vercel.app. The engineering playground remains in [apps/playground](./apps/playground). The optional self-hosted CDN source remains in [apps/cdn](./apps/cdn), while the active public CDN path is npm/jsDelivr.
 
 ## Install
 
@@ -49,7 +51,7 @@ Without a bundler, use the self-contained CDN build:
 
 ```html
 <script type="module">
-  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@next/dist/cdn/glitterfx.js';
+  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.js';
   new GlitterFX(document.querySelector('.hero'), { effect: 'galaxy' });
 </script>
 ```
@@ -192,7 +194,7 @@ Requires Node 22.12+. From `/v2`:
 
 ```bash
 npm ci              # install workspace
-npm run dev         # playground: /v2.html (V2), /fixtures.html (deterministic renders), / (V1 Effect Lab)
+npm run dev         # engineering playground: / (V2), /v2.html (V2 alias), /v1.html (legacy V1 on demand), /fixtures.html
 npm run typecheck   # strict TypeScript, no build needed
 npm run build       # package ESM + .d.ts, browser bundles, playground
 npm test            # Vitest, including package boundary checks
