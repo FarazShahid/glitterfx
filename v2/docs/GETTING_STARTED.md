@@ -1,5 +1,8 @@
 # Getting Started
 
+Current public alpha: **`2.0.0-alpha.0`**.  
+Live showcase: https://glitterfx-showcase.vercel.app
+
 ## 1. Install from npm
 
 V2 is currently a prerelease. Install the next tag:
@@ -68,7 +71,7 @@ Full WebGL + Canvas bundle:
 
 ~~~html
 <script type="module">
-  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@next/dist/cdn/glitterfx.js';
+  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.js';
 
   new GlitterFX(document.querySelector('#hero'), {
     effect: 'aurora-veil',
@@ -81,7 +84,7 @@ Canvas-only:
 
 ~~~html
 <script type="module">
-  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@next/dist/cdn/glitterfx.canvas.js';
+  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.canvas.js';
 
   new GlitterFX(document.querySelector('#hero'), {
     effect: 'dust-motes',
@@ -90,7 +93,7 @@ Canvas-only:
 </script>
 ~~~
 
-The project also includes a self-hosted CDN application. See [CDN distribution](./CDN.md).
+The canonical public browser distribution is currently npm/jsDelivr. The repository also retains an optional self-hosted CDN application under `v2/apps/cdn`, but there is no separate first-party CDN Vercel project in the current deployment. See [CDN distribution](./CDN.md).
 
 ## 5. A practical production configuration
 
@@ -252,4 +255,4 @@ new GlitterFX(hero, {
 - Marketing microsite with no build: CDN full bundle.
 - Small decorative surface: glitterfx/canvas.
 - React or Next.js: glitterfx/react.
-- Existing V1 site: keep V1 until migration is useful.
+- Existing V1 site: prefer `glitterfx/legacy` for migration; use the exact V1 runtime only when historical behavior is required.
