@@ -59,12 +59,21 @@ Already working:
 - React package
 - browser bundles
 - full V1 catalog on V2
-- package-ready `2.0.0-alpha.0`
+- published `glitterfx@2.0.0-alpha.0`
+- npm/jsDelivr browser distribution live
+- public V2 showcase live at https://glitterfx-showcase.vercel.app
 - CI typecheck / build / tests / pack-check green
 
 ## Public alpha
-Publishing `2.0.0-alpha.0` is an owner action described in `RELEASE.md`.
-It does not block continued development.
+`2.0.0-alpha.0` is published to npm and tagged in Git.
+
+Public distribution now includes:
+- `npm install glitterfx@next`
+- exact-version jsDelivr browser bundles
+- V2-first showcase at https://glitterfx-showcase.vercel.app
+- exact V1 runtime retained only for compatibility/on-demand use
+
+The canonical Vercel project is `glitterfx-showcase`. Old experimental GlitterFX Vercel projects were removed. Continued engine development remains on `main`.
 
 ## Next
 1. Shape Targets

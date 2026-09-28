@@ -1,41 +1,115 @@
 # CDN Distribution
 
-V2 supports two CDN paths:
+GlitterFX V2 is publicly available through the published npm package and npm-backed CDNs.
 
-1. npm-based public CDNs such as jsDelivr after the glitterfx package is published.
-2. The repository's own deployable CDN application under apps/cdn, intended for a controlled Vercel domain.
+## Current public CDN
 
-The self-hosted CDN is useful for demos, internal products, staged prereleases and a stable first-party URL.
+The canonical browser CDN path is currently **jsDelivr backed by npm**.
+
+Published package version:
+
+~~~text
+glitterfx@2.0.0-alpha.0
+~~~
+
+Pinned browser bundles:
+
+| Surface | URL |
+|---|---|
+| Full V2: WebGL + Canvas | `https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.js` |
+| V2 Canvas-only | `https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.canvas.js` |
+| V1-shaped adapter running on V2 | `https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.legacy.js` |
+| Exact historical V1 runtime | `https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/legacy/glitterfx.v1.js` |
+
+For production demos and reproducible integrations, prefer the exact version above.
+
+The prerelease tag is also available:
+
+~~~text
+glitterfx@next
+~~~
+
+During the alpha period, application code should use either the exact published version or `@next`; do not depend on an unqualified moving tag for critical production pages.
+
+## Full V2 example
+
+~~~html
+<section id="hero"></section>
+
+<script type="module">
+  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.js';
+
+  new GlitterFX(document.querySelector('#hero'), {
+    effect: 'star-field',
+    renderer: ['webgl', 'canvas'],
+    quality: 'balanced',
+  });
+</script>
+~~~
+
+The full browser bundle is self-contained and includes the WebGL implementation plus Canvas fallback.
+
+## Canvas-only example
+
+~~~html
+<script type="module">
+  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.canvas.js';
+
+  new GlitterFX(document.querySelector('#hero'), {
+    effect: 'dust-motes',
+    renderer: 'canvas',
+  });
+</script>
+~~~
+
+Use Canvas-only when the surface is small, the page has many independent animated regions, or the project explicitly does not want WebGL/Three.js.
+
+## Legacy choices
+
+V1-shaped API backed by V2:
+
+~~~html
+<script type="module">
+  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/cdn/glitterfx.legacy.js';
+</script>
+~~~
+
+Exact historical V1 runtime:
+
+~~~html
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/glitterfx@2.0.0-alpha.0/dist/legacy/glitterfx.v1.js"></script>
+~~~
+
+Use the exact V1 runtime only when an existing integration depends on historical V1 behavior such as runtime custom effect/palette registration or exact legacy blur behavior.
 
 ## Built browser artifacts
 
 The public package build generates:
 
-- dist/cdn/glitterfx.js — full WebGL + Canvas build, Three.js bundled
-- dist/cdn/glitterfx.canvas.js — Canvas-only build
-- dist/cdn/glitterfx.legacy.js — V1-shaped compatibility API running on V2
-- dist/legacy/glitterfx.v1.js — exact historical V1 classic runtime (requires global Three.js r128)
+~~~text
+dist/cdn/glitterfx.js
+dist/cdn/glitterfx.canvas.js
+dist/cdn/glitterfx.legacy.js
+dist/legacy/glitterfx.v1.js
+~~~
 
-Build from /v2:
+Build from `/v2`:
 
 ~~~bash
 npm ci
 npm run build:cdn
 ~~~
 
-This builds the public glitterfx browser bundles and stages the Vercel CDN output under apps/cdn/dist.
+## Optional self-hosted CDN source
 
-## Self-hosted CDN application
-
-Directory:
+The repository still contains an optional static CDN application at:
 
 ~~~text
 v2/apps/cdn/
 ~~~
 
-The CDN build copies the browser artifacts into a static site with versioned and latest aliases.
-
-Expected routes for version 2.0.0-alpha.0:
+It can stage versioned and latest aliases such as:
 
 ~~~text
 /v2/2.0.0-alpha.0/glitterfx.js
@@ -43,151 +117,42 @@ Expected routes for version 2.0.0-alpha.0:
 /v2/2.0.0-alpha.0/glitterfx.legacy.js
 /v2/2.0.0-alpha.0/glitterfx.v1.js
 /v2/latest/glitterfx.js
-/v2/latest/glitterfx.canvas.js
-/v2/latest/glitterfx.legacy.js
-/v2/latest/glitterfx.v1.js
 /manifest.json
-/
 ~~~
 
-The exact package version is read from packages/glitterfx/package.json at build time.
+As of **September 28, 2026**, there is **no separate GlitterFX first-party CDN Vercel project**. The old Vercel preview/CDN experiments were removed so the only canonical GlitterFX Vercel project is the public showcase.
 
-## Recommended production URLs
+The active public browser distribution is npm/jsDelivr.
 
-Use immutable versioned URLs in production applications:
+## Optional self-hosted cache policy
 
-~~~html
-<script type="module">
-  import { GlitterFX } from 'https://cdn.example.com/v2/2.0.0-alpha.0/glitterfx.js';
-
-  new GlitterFX(document.querySelector('#hero'), {
-    effect: 'glitter-shimmer',
-    renderer: ['webgl', 'canvas'],
-  });
-</script>
-~~~
-
-Use latest for development, demos or rapidly moving internal pages:
-
-~~~js
-import { GlitterFX } from 'https://cdn.example.com/v2/latest/glitterfx.js';
-~~~
-
-Do not use latest for a critical production page if a release could change behavior unexpectedly.
-
-## Canvas-only CDN
-
-~~~js
-import { GlitterFX } from 'https://cdn.example.com/v2/2.0.0-alpha.0/glitterfx.canvas.js';
-~~~
-
-Use this for small effects or projects that explicitly do not want Three.js/WebGL.
-
-## manifest.json
-
-The CDN build emits a manifest describing the exact served files.
-
-Example shape:
-
-~~~json
-{
-  "package": "glitterfx",
-  "version": "2.0.0-alpha.0",
-  "files": {
-    "glitterfx.js": {
-      "bytes": 123456,
-      "sha256": "...",
-      "integrity": "sha256-..."
-    }
-  }
-}
-~~~
-
-The hash is calculated from the final minified browser file.
-
-## Cache policy
-
-Versioned files are immutable:
+If `v2/apps/cdn` is deployed in the future, versioned files are intended to be immutable:
 
 ~~~text
 Cache-Control: public, max-age=31536000, immutable
 ~~~
 
-latest aliases use a short CDN cache so a release can move them safely:
+Moving aliases and `manifest.json` use short caches:
 
 ~~~text
 Cache-Control: public, max-age=60, s-maxage=300
 ~~~
 
-manifest.json also uses a short cache.
+The self-hosted CDN also emits SHA-256 hashes and SRI-style integrity strings in `manifest.json`.
 
-## CORS
+## Release verification
 
-The CDN surface sends:
+For every public release:
 
-~~~text
-Access-Control-Allow-Origin: *
-~~~
+1. Run the full V2 verification and pack check.
+2. Publish the npm package under the intended prerelease/stable tag.
+3. Verify the exact package version from the npm registry.
+4. Verify the exact-version jsDelivr URLs for the full, Canvas, legacy-adapter and exact-V1 artifacts.
+5. Smoke test a plain HTML page importing the pinned CDN module.
+6. Update documentation examples if the public version changes.
 
-for the module and manifest routes so ES module imports can load cross-origin.
+## Public showcase
 
-## npm/jsDelivr route
+The live showcase at https://glitterfx-showcase.vercel.app uses the actual published V2 CDN bundle.
 
-After package publication:
-
-~~~html
-<script type="module">
-  import { GlitterFX } from 'https://cdn.jsdelivr.net/npm/glitterfx@next/dist/cdn/glitterfx.js';
-</script>
-~~~
-
-For strict production pinning, use an exact npm version rather than next.
-
-## Release process for the CDN
-
-1. Update the public package version in packages/glitterfx/package.json and matching workspace package versions.
-2. Run the full V2 verification.
-3. Build the glitterfx package.
-4. Deploy the CDN application.
-5. Confirm manifest.json reports the expected version and hashes.
-6. Smoke test both full and Canvas-only URLs.
-7. Publish the npm package when ready.
-8. Pin production users to the exact released version.
-
-## Custom domain recommendation
-
-Use a dedicated asset hostname such as:
-
-~~~text
-cdn.glitterfx.dev
-assets.glitterfx.dev
-cdn.your-company-domain.com
-~~~
-
-Keep the interactive preview on a separate host such as:
-
-~~~text
-preview.glitterfx.dev
-~~~
-
-This lets CDN caching/security policy evolve independently from the preview application.
-
-
-## Legacy CDN choices
-
-V1-shaped API backed by V2:
-
-~~~html
-<script type="module">
-  import { GlitterFX } from 'https://cdn.example.com/v2/latest/glitterfx.legacy.js';
-</script>
-~~~
-
-Exact V1 runtime:
-
-~~~html
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.example.com/v2/latest/glitterfx.v1.js"></script>
-~~~
-
-The exact V1 file is the only option that preserves runtime registerPalette/registerEffect and historical V1 blur behavior exactly.
+The main experience is V2-first. The exact V1 runtime is downloaded only after explicit user interaction in the legacy section.

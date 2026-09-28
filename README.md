@@ -2,13 +2,24 @@
 
 # GlitterFX
 
-**Cinematic particle backgrounds for the web. One package, two generations, one migration path.**
+**Cinematic particle backgrounds for the web. V2 by default; V1 only when compatibility requires it.**
 
 V2 is the current engine: 37 deterministic effects, Canvas + WebGL, transitions, pointer interaction, x/y/z motion, React and CDN builds.
 
-The original V1 runtime is retained as a legacy migration asset inside the same package.
+The original V1 runtime is retained as an on-demand legacy migration asset inside the same package.
+
+**Live showcase:** https://glitterfx-showcase.vercel.app
 
 </div>
+
+## Current public alpha
+
+| Surface | Live status |
+|---|---|
+| npm | `glitterfx@2.0.0-alpha.0` published under the prerelease `next` tag |
+| CDN | jsDelivr serves the published npm browser bundles |
+| Showcase | https://glitterfx-showcase.vercel.app |
+| Git | `v2.0.0-alpha.0` tag on `main` |
 
 ## Install
 
@@ -65,6 +76,7 @@ For old sites that depend on runtime custom effects/palettes or exact V1 blur be
 
 V2 source, documentation, preview and distribution tooling live under [v2/](./v2/).
 
+- [Live V2 showcase](https://glitterfx-showcase.vercel.app)
 - [V2 documentation](./v2/docs/README.md)
 - [Getting started](./v2/docs/GETTING_STARTED.md)
 - [API reference](./v2/docs/API.md)
