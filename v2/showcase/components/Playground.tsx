@@ -115,6 +115,7 @@ new GlitterFX(preview, {
               transition={cfg.transition}
               paused={paused}
               onRendererChange={setResolvedRenderer}
+              showErrors
             />
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_10%,rgba(56,189,248,0.12),transparent_70%)]" />
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#05060f] via-transparent to-transparent" />
