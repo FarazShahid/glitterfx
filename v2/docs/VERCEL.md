@@ -1,15 +1,19 @@
 # Vercel Deployment
 
-V2 is prepared as two independent Vercel projects.
+GlitterFX currently uses **one canonical Vercel project** for the public showcase.
 
-## Project A: interactive preview
+## Live production project
 
-Purpose: public review of the current V2 playground.
-
-Recommended Vercel project name:
+Project:
 
 ~~~text
-glitterfx-v2-preview
+glitterfx-showcase
+~~~
+
+Team:
+
+~~~text
+faraz-gis
 ~~~
 
 Repository:
@@ -18,137 +22,151 @@ Repository:
 FarazShahid/glitterfx
 ~~~
 
-Git branch:
+Source directory:
 
 ~~~text
-main
+v2/showcase
 ~~~
 
-Root Directory:
+Production alias:
+
+https://glitterfx-showcase.vercel.app
+
+The showcase is a Next.js static-export site. It uses the published GlitterFX V2 CDN runtime in the browser rather than bundling a private copy of the particle engine.
+
+## Product behavior
+
+The public site is intentionally V2-first:
+
+- V2 is the default and recommended engine.
+- The hero starts on `star-field`.
+- The main hero/playground uses ordered WebGL → Canvas fallback.
+- Gallery and sample-heavy surfaces use the real V2 Canvas renderer to avoid creating many WebGL contexts.
+- Sports and automotive examples run canonical V2 effects.
+- The exact V1 runtime is not loaded during normal browsing.
+- V1 + Three.js r128 are downloaded only after an explicit legacy-demo action.
+
+## Deployment workflow
+
+The deployment workflow lives at:
+
+~~~text
+.github/workflows/showcase.yml
+~~~
+
+Pull requests that change `v2/showcase/**` run:
+
+1. showcase dependency installation
+2. strict TypeScript check
+3. production Next.js build
+
+After a change reaches `main`, the same checks run before the production deployment job.
+
+The production job:
+
+1. authenticates with the repository `VERCEL_TOKEN` GitHub Actions secret
+2. confirms the `glitterfx-showcase` project exists
+3. deploys `v2/showcase` to production
+4. verifies the production homepage with Vercel CLI
+
+The deployment pipeline was successfully exercised against production on **September 28, 2026**.
+
+## Runtime environment variables
+
+The showcase itself requires no application secrets or runtime environment variables.
+
+The GitHub deployment workflow requires:
+
+~~~text
+VERCEL_TOKEN
+~~~
+
+as a repository Actions secret. That token is deployment infrastructure only and is not exposed to the browser application.
+
+## Engineering playground
+
+The engine-focused playground remains in:
 
 ~~~text
 v2/apps/playground
 ~~~
 
-The directory includes vercel.json with the install command, build command, output directory and root rewrite.
+It is not the canonical public Vercel site.
 
-The root URL rewrites to v2.html.
+Run it locally from `/v2`:
+
+~~~bash
+npm ci
+npm run dev
+~~~
 
 Useful routes:
 
 ~~~text
-/                 V2 playground (default)
+/                 V2 playground
 /v2.html          V2 playground alias
-/v1.html          legacy V1 Effect Lab (on demand)
+/v1.html          legacy V1 Effect Lab, on demand
 /parity.html      Canvas/WebGL parity view
-/fixtures.html    deterministic visual fixture page
+/fixtures.html    deterministic visual fixtures
 ~~~
 
-The Vite build has all three pages as explicit entries.
+## CDN deployment
 
-### Preview validation
+There is currently **no separate GlitterFX CDN Vercel project**.
 
-After deployment:
+The public browser bundles are delivered from the published npm package through jsDelivr. See [CDN distribution](./CDN.md).
 
-1. Open / and confirm the V2 playground loads and an effect animates.
-2. Switch renderer among auto, Canvas and WebGL.
-3. Confirm /v1.html loads only when requested as the legacy V1 Effect Lab.
-4. Open /parity.html and compare the two backends.
-5. Open /fixtures.html?effects=glitter-shimmer&renderers=canvas,webgl&t=5&seed=42.
-5. Verify the browser console has no shader, import or asset errors.
-6. Test a mobile viewport.
-7. Test prefers-reduced-motion.
-
-## Project B: CDN
-
-Recommended Vercel project name:
-
-~~~text
-glitterfx-v2-cdn
-~~~
-
-Root Directory:
+The optional self-hosted CDN source remains at:
 
 ~~~text
 v2/apps/cdn
 ~~~
 
-The CDN project builds the public glitterfx package and stages the self-contained browser bundles into its own dist folder.
+and can be deployed later if a first-party asset hostname becomes necessary.
 
-Routes:
+## Removed projects
 
-~~~text
-/v2/<version>/glitterfx.js
-/v2/<version>/glitterfx.canvas.js
-/v2/<version>/glitterfx.legacy.js
-/v2/<version>/glitterfx.v1.js
-/v2/latest/glitterfx.js
-/v2/latest/glitterfx.canvas.js
-/v2/latest/glitterfx.legacy.js
-/v2/latest/glitterfx.v1.js
-/manifest.json
-~~~
-
-Versioned files receive long immutable cache headers. latest and manifest use short cache headers.
-
-## Git deployment behavior
-
-For both projects:
-
-- Production branch: main.
-- main is the single source branch for V1 compatibility and V2.
-- Feature branches and pull requests may use Vercel Preview Deployments.
-- Production deployments should follow green CI and PR review on main.
-
-## Suggested domains
-
-Preview:
+The previous experimental Vercel projects were deleted:
 
 ~~~text
-v2.glitterfx.dev
-preview.glitterfx.dev
+glitterfx
+glitterfx-v2-preview
 ~~~
 
-CDN:
+Do not recreate them as parallel public surfaces unless there is a concrete need.
+
+The intended topology is:
 
 ~~~text
-cdn.glitterfx.dev
+npm / jsDelivr
+      ↓
+ GlitterFX V2 runtime
+
+FarazShahid/glitterfx main
+      ↓
+ v2/showcase
+      ↓
+glitterfx-showcase.vercel.app
 ~~~
 
-If the domain is not available yet, keep the generated vercel.app URLs.
+## Manual CLI deployment
 
-## Environment variables
+With an authorized Vercel token:
 
-Neither the preview nor CDN application currently requires secrets or runtime environment variables.
+~~~bash
+vercel deploy v2/showcase \
+  --prod \
+  --yes \
+  --token "$VERCEL_TOKEN" \
+  --project glitterfx-showcase
+~~~
 
-That is intentional: both are static outputs.
+The automated GitHub workflow is preferred because it keeps typecheck/build validation in front of production deployment.
 
 ## Rollback
 
-Vercel retains prior deployments. If a preview or CDN build has a regression, promote/rollback to the previous known-good deployment rather than rebuilding old source.
+Vercel retains previous production deployments.
 
-For CDN users pinned to an exact versioned URL, previously deployed immutable assets should remain stable.
+If the showcase regresses, roll back or promote the previous known-good deployment instead of rebuilding old source.
 
-## Vercel CLI equivalent
-
-If deploying from a machine with Vercel CLI authentication:
-
-~~~bash
-vercel --cwd v2/apps/playground
-vercel --cwd v2/apps/cdn
-~~~
-
-For production:
-
-~~~bash
-vercel --prod --cwd v2/apps/playground
-vercel --prod --cwd v2/apps/cdn
-~~~
-
-## Why two projects
-
-The preview is an application: it changes frequently and should not have year-long caching.
-
-The CDN is an asset service: versioned files should be immutable, stable and aggressively cached.
-
-Keeping them separate prevents a preview deployment change from accidentally changing CDN behavior or cache policy.
+The npm/CDN runtime is independently version-pinned, so rolling back the showcase does not mutate already published package artifacts.
